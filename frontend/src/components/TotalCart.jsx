@@ -10,17 +10,13 @@ function TotalCart({ totalAmount , Maptotal}) {
         display: "flex",
         alignItems: "center",
         gap: 1.5,
-        p: 1.5,
+        p: 1,
         borderRadius: 2,
         bgcolor: "background.paper",
         boxShadow: 2,
         border: "1px solid",
         borderColor: "divider",
-        transition: "all 0.2s ease-in-out",
-        "&:hover": {
-          boxShadow: 3,
-          transform: "translateY(-1px)",
-        },
+        
       }}
     >
       <Badge

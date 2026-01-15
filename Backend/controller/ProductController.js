@@ -93,7 +93,7 @@ export const Updateproduct = async (req, res) => {
 
 export const AddtoCart = async (req, res) => {
   try {
-    const { user, productId } = req.body;
+    const { user, productId, quantity } = req.body;
 
     if (!user || !productId) {
       return res.status(400).json({ error: "User and productId are required" });
@@ -108,10 +108,10 @@ export const AddtoCart = async (req, res) => {
 
     const product = await Product.findById(productId);
     if (!product) {
-      return res.status(404).json({ error: "Product not found " });
+      return res.status(404).json({ error: "Product not found" });
     }
 
-    const cartItem = new Cart({ user, productId });
+    const cartItem = new Cart({ user, productId, quantity });
     await cartItem.save();
 
     const populatedItem = await Cart.findById(cartItem._id).populate(
@@ -189,7 +189,6 @@ export const UpdateQuantity = async (req, res) => {
       data: updatedCartItem,
     });
   } catch (error) {
-    console.error("Update quantity error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -215,5 +214,39 @@ export const RemoveCartItem = async (req, res) => {
         .status(400)
         .send({ message: "cart Item not Deleted", success: false });
     }
-  } catch (error) {}
+  } catch (error) {
+    res.status(500).send({
+      message: "Internal Server Error",
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+export const RemoveCartByUserId = async (req, res) => {
+  const { _id } = req.params;
+
+  try {
+    const result = await Cart.deleteMany({ user: _id });
+
+    if (result.deletedCount > 0) {
+      return res.status(200).json({
+        message: "User cart cleared successfully",
+        success: true,
+        deletedCount: result.deletedCount,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Cart was already empty",
+      success: true,
+      deletedCount: 0,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Internal Server Error",
+      success: false,
+      error: error.message,
+    });
+  }
 };

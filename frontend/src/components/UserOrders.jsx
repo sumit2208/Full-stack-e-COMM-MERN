@@ -24,6 +24,8 @@ import {
   FiDollarSign,
 } from "react-icons/fi";
 import api from "../api";
+import { FcApproval } from "react-icons/fc";
+import { FcCancel } from "react-icons/fc";
 
 const modalStyle = {
   position: "absolute",
@@ -42,18 +44,30 @@ const modalStyle = {
 function UserOrders() {
   const userId = localStorage.getItem("_id");
   const [orders, setOrders] = useState([]);
+  const [kycdata, setkycdata] = useState([]);
   const [selectedOrderItems, setSelectedOrderItems] = useState([]);
   const [openModal, setOpenModal] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
 
   useEffect(() => {
     GetUserOrders(userId);
+    GetAddress(userId);
   }, []);
 
   const GetUserOrders = async (userId) => {
     try {
       const res = await api.get(`/userorder/${userId}`);
       setOrders(res?.data?.result || []);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+    }
+  };
+
+  const GetAddress = async (userId) => {
+    try {
+      const result = await api.get(`/getkycbyid/${userId}`);
+      // console.log(result?.data?.data?.address)
+      setkycdata(result?.data?.data?.address);
     } catch (error) {
       console.error("Error fetching orders:", error);
     }
@@ -83,7 +97,7 @@ function UserOrders() {
       </Typography>
 
       <Stack spacing={2.5}>
-        {orders.map((order) => (
+        {orders.toReversed().map((order) => (
           <Paper
             key={order._id}
             elevation={2}
@@ -104,7 +118,19 @@ function UserOrders() {
                 <Typography variant="subtitle1" fontWeight={600}>
                   Order ID: {order?.orderId}
                 </Typography>
-
+                <Typography
+                  sx={{
+                    gap: "5px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  variant="subtitle1"
+                  fontWeight={600}
+                >
+                  status: {order?.status || "N/A"}{" "}
+                  {order?.status === "captured" ? <FcApproval /> : <FcCancel />}
+                </Typography>
                 <Button
                   onClick={() => handleViewOrderItems(order?.orderId)}
                   variant="contained"
@@ -144,6 +170,12 @@ function UserOrders() {
                   </Typography>
                 </Box>
               </Stack>
+              <Box>
+                <Typography sx={{ fontWeight: 600 }} variant="h6">
+                  Address
+                </Typography>
+                <Typography variant="body2">{kycdata}</Typography>
+              </Box>
             </Box>
           </Paper>
         ))}

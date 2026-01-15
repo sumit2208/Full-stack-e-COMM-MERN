@@ -13,6 +13,7 @@ import {
   UserUpdateData,
   Profile,
   ResumeKycData,
+  GetUserDatabtKycWithID,
 } from "../controller/userController.js";
 import { authenticate } from "../middleware/ValidateUser.js";
 import {
@@ -33,6 +34,8 @@ router.patch("/updateuser/:_id", authenticate, UserUpdateData);
 router.delete("/userdelete/:_id", authenticate, UserDelete);
 router.get("/allpermission", getallpermission);
 router.get("/profile/:_id", authenticate, Profile);
+
+router.get('/getkycbyid/:_id',authenticate,GetUserDatabtKycWithID)
 
 router.get("/admintransction", authenticate, getAllTransactions);
 router.get("/admintransction/:id", authenticate, getTransactionById);

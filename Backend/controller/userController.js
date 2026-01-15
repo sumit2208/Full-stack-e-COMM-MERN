@@ -235,6 +235,36 @@ export const sendkyc = async (req, res) => {
     });
   }
 };
+
+export const GetUserDatabtKycWithID = async (req, res) => {
+  try {
+    const { _id } = req.params;
+
+    const kycData = await Kyc.findOne({ userId: _id });
+
+    if (!kycData) {
+      return res.status(404).json({
+        message: "KYC data not found for this user",
+        success: false,
+      });
+    }
+
+    return res.status(200).json({
+      data: kycData,
+      message: "KYC data fetched successfully",
+      success: true,
+    });
+  } catch (error) {
+    console.error("KYC fetch error:", error);
+
+    return res.status(500).json({
+      message: "Server error while fetching KYC data",
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
 export const ResumeKycData = async (req, res) => {
   try {
     const { _id } = req.params;
@@ -242,20 +272,19 @@ export const ResumeKycData = async (req, res) => {
     const kycData = await Kyc.findOne({ userId: _id });
 
     if (kycData) {
-      return res.status(200).send({
+      res.status(200).send({
         message: "Resume Data Fetch",
         success: true,
         data: kycData,
       });
     } else {
-      return res.status(404).send({
+      res.status(404).send({
         message: "No KYC data found",
         success: false,
       });
     }
   } catch (error) {
-    console.error(error);
-    return res.status(500).send({
+    res.status(500).send({
       message: "Server error while fetching KYC data",
       success: false,
     });

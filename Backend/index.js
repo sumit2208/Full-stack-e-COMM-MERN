@@ -92,6 +92,7 @@ app.post("/paymentverification", async (req, res) => {
       orderId: PaymentdB?.order_id,
       email: PaymentdB?.email,
       userId: PaymentdB?.notes?.userId,
+      status:PaymentdB?.status,
       orderNumber: uuidv4(),
     });
 

@@ -57,6 +57,11 @@ const Navbar = () => {
 
   useEffect(() => {
     getitemlist(_id);
+    const handlecartupdate = () => {
+      getitemlist(_id);
+    };
+
+    window.addEventListener("cart-updated", handlecartupdate);
   }, [_id]);
 
   const Maptotal = itemlist.map((e) => e.DiscountedAmount);
@@ -156,47 +161,100 @@ const Navbar = () => {
     Profile(_id);
   }, [location]);
 
+  const handleRemoveCart = async (_id) => {
+    await api.delete(`/usercartdelete/${_id}`);
+  };
+
   // Razorpay
   const handlecheckout = async (amount) => {
     console.log(itemlist);
-    const { data: keydata } = await axios.get("http://localhost:1111/getkey");
-    const { key } = keydata;
-    const { data: orderData } = await axios.post(
-      "http://localhost:1111/payment/process",
-      {
-        amount,
-      }
-    );
-    const { order } = orderData;
-    const options = {
-      key,
-      amount: amount,
-      currency: "INR",
-      name: "Sumit Corp",
-      description: "Test Transaction",
-      order_id: order.id,
-      notes: {
-        userId: profile?.data?.result?._id,
-        yourOrderItems: JSON.stringify(
-          itemlist.map((item) => ({
-            product: item._id,
-            quantity: item.quantity || 1,
-            price: item.DiscountedAmount,
-          }))
-        ),
-      },
-      callback_url: "http://localhost:1111/paymentverification",
-      prefill: {
-        name: profile?.data?.result?.name,
-        email: profile?.data?.result?.email,
-      },
-      theme: {
-        color: "#6457AE",
-      },
-    };
 
-    const rzp = new Razorpay(options);
-    rzp.open();
+    try {
+      const { data: keydata } = await axios.get("http://localhost:1111/getkey");
+      const { key } = keydata;
+
+      const { data: orderData } = await axios.post(
+        "http://localhost:1111/payment/process",
+        { amount }
+      );
+      const { order } = orderData;
+
+      const options = {
+        key,
+        amount: Math.round(amount * 100),
+        currency: "INR",
+        name: "Sumit Corp",
+        description: "Test Transaction",
+        order_id: order.id,
+        notes: {
+          userId: profile?.data?.result?._id,
+          yourOrderItems: JSON.stringify(
+            itemlist.map((item) => ({
+              product: item._id,
+              quantity: item.quantity || 1,
+              price: item.DiscountedAmount,
+            }))
+          ),
+        },
+        modal: {
+          ondismiss: function (reason) {
+            if (reason === undefined) {
+              handlePaymentStatus("cancelled");
+            } else if (reason === "timeout") {
+              handlePaymentStatus("timedout");
+            } else {
+              handlePaymentStatus("failed", {
+                reason: reason.error.reason,
+                code: reason.error.code,
+                step: reason.error.step,
+                field: reason.error.field,
+              });
+            }
+          },
+          confirm_close: true,
+        },
+        callback_url: "http://localhost:1111/paymentverification",
+
+        prefill: {
+          name: profile?.data?.result?.name,
+          email: profile?.data?.result?.email,
+        },
+        theme: {
+          color: "#6457AE",
+        },
+
+        handler: function (response) {
+          handleRemoveCart(_id);
+          window.location.href = `http://localhost:5173/paymentSuccess?reference=${response.razorpay_payment_id}`;
+        },
+      };
+
+      const rzp = new Razorpay(options);
+
+      rzp.on("payment.failed", function (response) {
+        alert(
+          "Payment Failed!\n" +
+            "Code: " +
+            (response.error.code || "?") +
+            "\n" +
+            "Description: " +
+            (response.error.description || "Unknown") +
+            "\n" +
+            "Reason: " +
+            (response.error.reason || "-")
+        );
+      });
+
+      rzp.on("modal.ondismiss", function () {
+        console.log("User cancelled / closed modal");
+        alert("Payment process cancelled.");
+      });
+
+      rzp.open();
+    } catch (err) {
+      console.error("Checkout init failed:", err);
+      alert("Error starting payment. Please try again.");
+    }
   };
 
   return (
@@ -219,7 +277,6 @@ const Navbar = () => {
             <>
               <Box
                 key={e._id}
-                className="shadow"
                 sx={{
                   display: "flex",
                   width: "500px",
@@ -277,7 +334,7 @@ const Navbar = () => {
                       onClick={() => HandleDeleteCartItem(e._id)}
                       variant="contained"
                       size="small"
-                      sx={{ fontSize: "10px" }}
+                      sx={{ fontSize: "10px", bgcolor: "#6457AE" }}
                     >
                       Remove
                     </Button>
@@ -285,7 +342,7 @@ const Navbar = () => {
                 </Box>
               </Box>
 
-              <Divider sx={{ borderColor: "#0b0b0bff", borderWidth: 2 }} />
+              <Divider sx={{ borderColor: "#0b0b0bff", borderWidth: 1 }} />
             </>
           ))}
           <Box
@@ -294,13 +351,12 @@ const Navbar = () => {
               p: 2,
               justifyContent: "space-between",
               alignItems: "center",
-              border: "2px solid black",
             }}
           >
             <TotalCart totalAmount={Total} Maptotal={Maptotal} />
             <Button
               variant="contained"
-              bgcolor="blue"
+              sx={{ bgcolor: "#6457AE" }}
               onClick={() => handlecheckout(Total)}
             >
               Checkout
@@ -329,7 +385,7 @@ const Navbar = () => {
             image="https://expressfly.in/img/logo.png"
             alt="Paella dish"
           />
-          <Typography variant="h6" sx={{ mt: 1, fontWeight: 700 }}>
+          <Typography variant="h6" sx={{ mt: 1, fontWeight: 600 }}>
             Role: {Role}
           </Typography>
           <Divider sx={{ my: 2, borderColor: "black", borderWidth: 2 }} />
@@ -360,6 +416,16 @@ const Navbar = () => {
               )}
             </Box>
           ))}
+          {Role === "CUSTOMER" ? (
+            <Box>
+              <ListItemButton onClick={() => navigate("/products")}>
+                <Typography sx={{ fontWeight: 700 }}> Products</Typography>
+              </ListItemButton>
+              <Divider sx={{ borderColor: "black", borderWidth: 2 }} />
+            </Box>
+          ) : (
+            ""
+          )}
 
           <Box
             sx={{
@@ -378,9 +444,7 @@ const Navbar = () => {
             <IconButton>
               <IoPersonCircle style={{ color: "black", fontSize: "25px" }} />
             </IconButton>
-            <IconButton>
-              <FaShoppingCart style={{ color: "black", fontSize: "25px" }} />
-            </IconButton>
+
             <IconButton sx={{ display: { xs: "inline", md: "none" } }}>
               <IoMenu style={{ color: "black", fontSize: "25px" }} />
             </IconButton>
@@ -408,10 +472,12 @@ const Navbar = () => {
         >
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <IconButton
-              onClick={() => setopen(true)}
+              onClick={() => {
+                setopen(true);
+              }}
               sx={{
                 color: "white",
-                "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                "&:hover": { bgcolor: "rgba(255, 255, 255, 0.51)" },
               }}
             >
               <IoMenu size={28} color="#6457AE" />
@@ -509,7 +575,7 @@ const Navbar = () => {
                 <IconButton
                   sx={{
                     color: "white",
-                    "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.51)" },
                   }}
                 >
                   <MdOutlineVerifiedUser size={26} color="#6457AE" />
@@ -517,25 +583,26 @@ const Navbar = () => {
                 <IconButton
                   sx={{
                     color: "white",
-                    "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.51)" },
                   }}
                 >
                   <IoIosNotifications size={26} color="#6457AE" />
                 </IconButton>
+
                 <IconButton
-                  onClick={() => setsecondopen(true)}
+                  onClick={() =>  setsecondopen(true)  }
                   sx={{
                     color: "white",
-                    "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.51)" },
                   }}
                 >
-                  <FaShoppingCart size={26} color="#6457AE" />
+                  <FaShoppingCart size={26} color= "#6457AE"  />
                 </IconButton>
                 <IconButton
                   onClick={handleClick}
                   sx={{
                     color: "white",
-                    "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.51)" },
                   }}
                 >
                   <IoPersonCircle size={30} color="#6457AE" />

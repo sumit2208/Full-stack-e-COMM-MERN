@@ -1,194 +1,219 @@
-import { Box, CardActions } from "@mui/material";
-import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import CardMedia from "@mui/material/CardMedia";
-import Typography from "@mui/material/Typography";
-import api from "../api";
+import { Box, Button, ButtonGroup, Card, CardActions, CardContent, CardMedia, IconButton, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
+import api from "../api";
 import { FaCartPlus, FaTags, FaBoxOpen } from "react-icons/fa";
 import { GiPriceTag } from "react-icons/gi";
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
 
-const ProductCard = (props) => {
-  const user = localStorage.getItem("_id");
-  const [hide, sethide] = useState([]);
+const ProductCard = ({ _id, name, description, image, stock, price, DiscountAmount, DiscountedAmount }) => {
+  const userId = localStorage.getItem("_id");
   
-  const getitemlist = async (user) => {
-    const data = await api.get(`/getcart/${user}`);
-    sethide(data.data.data.map((e) => e.productId._id));
+  const [isInCart, setIsInCart] = useState(false);
+  const [showQuantitySelector, setShowQuantitySelector] = useState(false);
+  const [quantity, setQuantity] = useState(1);
+  const [isAdding, setIsAdding] = useState(false);
+
+ 
+  const checkCartStatus = async () => {
+    if (!userId) return;
+    try {
+      const { data } = await api.get(`/getcart/${userId}`);
+      const inCart = data.data.data.some(item => item.productId._id === _id);
+      setIsInCart(inCart);
+    } catch (err) {
+      console.error("Failed to check cart status:", err);
+    }
   };
 
   useEffect(() => {
-    getitemlist(user);
-  }, [user]);
+    if (userId) {
+      checkCartStatus();
+    }
+  }, [userId, _id]);
 
-  const handleAddTocart = async (_id) => {
-    await api.post("/addtocart", {
-      user: user,
-      productId: _id,
+  const handleQuantityChange = (change) => {
+    setQuantity(prev => {
+      const newQty = prev + change;
+      if (newQty < 1) return 1;
+      if (newQty > (stock || 999)) return stock || 999;
+      return newQty;
     });
-    getitemlist(user);
+  };
+
+  const handleAddToCart = async () => {
+
+  
+    if (!userId) {
+      alert("Please login first!");
+      return;
+    }
+
+    setIsAdding(true);
+
+    try {
+      await api.post("/addtocart", {
+        user: userId,
+        productId: _id,
+        quantity: quantity
+      });
+
+      setIsInCart(true);
+      setShowQuantitySelector(false);
+      setQuantity(1); 
+      window.dispatchEvent(new CustomEvent('cart-updated'));
+    } catch (err) {
+      console.error("Add to cart failed:", err);
+      alert("Failed to add to cart. Please try again.");
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   return (
     <Card
       sx={{
-        width: 270,
-        margin: 2,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+        width: 280,
+        m: 2,
         borderRadius: "16px",
         overflow: "hidden",
-        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-        backgroundColor: "background.paper",  
+        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+        transition: "all 0.3s ease",
         "&:hover": {
           transform: "translateY(-8px)",
-          boxShadow: "0 20px 40px rgba(35, 51, 177, 0.25)",
-          borderColor: "primary.main",
-        },
+          boxShadow: "0 20px 40px rgba(35,51,177,0.2)",
+        }
       }}
     >
       <CardMedia
         component="img"
-        height="200"
-        image="https://imgs.search.brave.com/J4C1b7XxQEbnszcCzpuzw3PWHoaMxqAdmIczApmKC7M/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9ndWlk/ZS1pbWFnZXMuY2Ru/LmlmaXhpdC5jb20v/aWdpL2xNRmNXWG8x/cHBxa0lIWVYuc3Rh/bmRhcmQ"
-        alt={props.name}
+        height="220"
+        image={image || "https://imgs.search.brave.com/1WO7q56PDL0klF26aeUopfRb5FmxL2hEvklhMf7gZ_E/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9ndWlk/ZS1pbWFnZXMuY2Ru/LmlmaXhpdC5jb20v/aWdpL1hJV0ZBYlpy/amQ0Vmdkcnkuc3Rh/bmRhcmQ"}
+        alt={name}
         sx={{
           objectFit: "cover",
-          transition: "transform 0.3s ease",
-          "&:hover": {
-            transform: "scale(1.05)",
-          },
+          transition: "transform 0.4s ease",
+          "&:hover": { transform: "scale(1.06)" }
         }}
       />
-      <CardContent
-        sx={{
-          padding: 3,
-          "&:last-child": {
-            paddingBottom: 2,
-          },
-        }}
-      >
-        <Typography
-          gutterBottom
-          variant="h6"
-          component="div"
-          fontWeight="700"
-          color="text.primary"
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-            mb: 1,
-          }}
-        > 
-          {props.name}
+
+      <CardContent sx={{ p: 3 }}>
+        <Typography variant="h6" fontWeight={700} gutterBottom>
+          {name}
         </Typography>
-        
+
         <Typography
           variant="body2"
-          color="text.secondary" 
+          color="text.secondary"
           sx={{
             display: "-webkit-box",
             WebkitLineClamp: 2,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            mb: 1.5,
-            minHeight: "3em",
+            mb: 2,
+            minHeight: "2.8em"
           }}
         >
-          {props.description}
+          {description}
         </Typography>
 
-        <Typography
-          variant="body2"
-          color="error"
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.5,
-            mb: 1,
-          }}
-        >
-          <FaBoxOpen size={14} />
-          {props.stock} Left in stock
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+          <FaBoxOpen size={16} />
+          <Typography variant="body2" color="error">
+            {stock} in stock
+          </Typography>
+        </Box>
 
-        <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "grey.50", borderRadius: 1 }}>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-            }}
-          >
-            <GiPriceTag size={14} color="text.secondary" />
-            <span style={{ textDecoration: "line-through" }}>{props.price}</span>
+        <Box sx={{ bgcolor: "grey.50", p: 1.5, borderRadius: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            <span style={{ textDecoration: "line-through" }}>₹{price}</span>
           </Typography>
-          
-          <Typography
-            variant="body2"
-            color="success.main"
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-              mt: 0.5,
-            }}
-          >
-            <FaTags size={14} />
-            Discount: {props.DiscountAmount}
+
+          <Typography variant="body2" color="success.main" fontWeight={500}>
+            Discount: ₹{DiscountAmount}
           </Typography>
-          
-          <Typography
-            variant="h6"
-            color="primary"
-            fontWeight="bold"
-            sx={{
-              mt: 0.5,
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-            }}
-          >
-            <FaCartPlus size={18} />
-            Final: {props.DiscountedAmount}
+
+          <Typography variant="h6" color="primary" fontWeight="bold" mt={0.5}>
+            ₹{DiscountedAmount}
           </Typography>
         </Box>
       </CardContent>
-      
-      <CardActions
-        sx={{
-          padding: 2,
-          pt: 0,
-        }}
-      >
-        <Button
-          variant="contained"
-          color="primary"
-          size="small"
-          fullWidth
-          disabled={hide.includes(props._id)}
-          onClick={() => handleAddTocart(props._id)}
-          startIcon={<FaCartPlus />}
-          sx={{
-            textTransform: "none",
-            fontWeight: "600",
-            borderRadius: "8px",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-            "&:hover": {
-              boxShadow: "0 4px 8px rgba(0,0,0,0.3)",
-              transform: "translateY(-1px)",
-            },
-          }}
-        >
-          {hide.includes(props._id) ? "Added to Cart" : "Add to Cart"}
-        </Button>
+
+      <CardActions sx={{ px: 3, pb: 3, pt: 1 }}>
+        { showQuantitySelector ? (
+          <Box sx={{ width: "100%", display: "flex", flexDirection: "column", gap: 1.5 }}> 
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                bgcolor: "grey.100",
+                p: 1,
+                borderRadius: 1
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => handleQuantityChange(-1)}
+                  disabled={quantity <= 1}
+                >
+                  <RemoveIcon fontSize="small" />
+                </IconButton>
+
+                <Typography
+                  variant="h6"
+                  sx={{ minWidth: 40, textAlign: "center", fontWeight: 600 }}
+                >
+                  {quantity}
+                </Typography>
+
+                <IconButton
+                  size="small"
+                  onClick={() => handleQuantityChange(1)}
+                  disabled={quantity >= (stock || 999)}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Box>
+
+              <Button
+                variant="contained"
+                size="small"
+                color="primary"
+                onClick={handleAddToCart}
+                disabled={isAdding}
+              >
+                {isAdding ? "Adding..." : "Add"}
+              </Button>
+            </Box>
+
+            <Button
+              variant="outlined"
+              size="small"
+              fullWidth
+              onClick={() => {
+                setShowQuantitySelector(false);
+                setQuantity(1);
+              }}
+            >
+              Cancel
+            </Button>
+          </Box>
+        ) : (
+          <Button
+            variant="contained" 
+            fullWidth
+            startIcon={<FaCartPlus />}
+            onClick={() => setShowQuantitySelector(true)}
+            sx={{ py: 1.2, fontWeight: 600,bgcolor:"#6457AE"}}
+          >
+            Add to Cart
+          </Button>
+        )}
       </CardActions>
     </Card>
   );
 };
 
-export default ProductCard;   
+export default ProductCard;

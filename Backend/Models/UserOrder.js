@@ -9,6 +9,7 @@ const userOrderSchema = new mongoose.Schema(
     orderNumber: {
       type: String,
     },
+    status: { type: String },
   },
   { timestamps: true }
 );
