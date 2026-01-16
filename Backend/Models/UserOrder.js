@@ -9,7 +9,7 @@ const userOrderSchema = new mongoose.Schema(
     orderNumber: {
       type: String,
     },
-    status: { type: String },
+    status: { type: String  , default:"Pending" },
   },
   { timestamps: true }
 );

@@ -3,6 +3,7 @@ import { IoIosNotifications } from "react-icons/io";
 import { IoPersonCircle } from "react-icons/io5";
 import { FaChevronLeft, FaShoppingCart } from "react-icons/fa";
 import { FaCartArrowDown } from "react-icons/fa";
+import { MdClear } from "react-icons/md";
 import {
   Box,
   Button,
@@ -18,6 +19,7 @@ import {
   Menu,
   MenuItem,
   Typography,
+  Badge,
 } from "@mui/material";
 import { IoMenu } from "react-icons/io5";
 import { useState } from "react";
@@ -167,53 +169,44 @@ const Navbar = () => {
 
   // Razorpay
   const handlecheckout = async (amount) => {
-    console.log(itemlist);
-
     try {
       const { data: keydata } = await axios.get("http://localhost:1111/getkey");
       const { key } = keydata;
 
       const { data: orderData } = await axios.post(
-        "http://localhost:1111/payment/process",
+        "https://unagitated-jamie-waxier.ngrok-free.dev/payment/process",
         { amount }
       );
+
       const { order } = orderData;
+
+      await axios.post(
+        `https://unagitated-jamie-waxier.ngrok-free.dev/paymentverification`,
+        {
+          yourOrderItems: JSON.stringify(
+            itemlist.map((item) => ({
+              product: item._id,
+              quantity: item.quantity || 1,
+              price: item.DiscountedAmount,
+              order_id: order.id,
+            }))
+          ),
+        }
+      );
 
       const options = {
         key,
-        amount: Math.round(amount * 100),
+        amount: amount,
         currency: "INR",
         name: "Sumit Corp",
         description: "Test Transaction",
         order_id: order.id,
         notes: {
           userId: profile?.data?.result?._id,
-          yourOrderItems: JSON.stringify(
-            itemlist.map((item) => ({
-              product: item._id,
-              quantity: item.quantity || 1,
-              price: item.DiscountedAmount,
-            }))
-          ),
         },
-        modal: {
-          ondismiss: function (reason) {
-            if (reason === undefined) {
-              handlePaymentStatus("cancelled");
-            } else if (reason === "timeout") {
-              handlePaymentStatus("timedout");
-            } else {
-              handlePaymentStatus("failed", {
-                reason: reason.error.reason,
-                code: reason.error.code,
-                step: reason.error.step,
-                field: reason.error.field,
-              });
-            }
-          },
-          confirm_close: true,
-        },
-        callback_url: "http://localhost:1111/paymentverification",
+
+        callback_url:
+          "https://unagitated-jamie-waxier.ngrok-free.dev/paymentverification",
 
         prefill: {
           name: profile?.data?.result?.name,
@@ -230,29 +223,9 @@ const Navbar = () => {
       };
 
       const rzp = new Razorpay(options);
-
-      rzp.on("payment.failed", function (response) {
-        alert(
-          "Payment Failed!\n" +
-            "Code: " +
-            (response.error.code || "?") +
-            "\n" +
-            "Description: " +
-            (response.error.description || "Unknown") +
-            "\n" +
-            "Reason: " +
-            (response.error.reason || "-")
-        );
-      });
-
-      rzp.on("modal.ondismiss", function () {
-        console.log("User cancelled / closed modal");
-        alert("Payment process cancelled.");
-      });
-
+      console.log(options);
       rzp.open();
     } catch (err) {
-      console.error("Checkout init failed:", err);
       alert("Error starting payment. Please try again.");
     }
   };
@@ -267,14 +240,31 @@ const Navbar = () => {
           backdrop: {
             style: {
               background: "rgba(0, 0, 0, 0.5)",
-              backdropFilter: "blur(8px)",
             },
           },
         }}
       >
         <>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              px: 5,
+              py: 2,
+              bgcolor: "rgba(161, 161, 161, 0.22)",
+            }}
+          >
+            <Typography sx={{ fontWeight: 800 }}>My Cart</Typography>
+            <IconButton onClick={() => setsecondopen(false)}>
+              <MdClear color="black" />
+            </IconButton>
+          </Box>
           {itemlist.map((e) => (
             <>
+              <Divider
+                sx={{ borderColor: "rgb(47, 46, 46)", borderWidth: 1.5 }}
+              />
               <Box
                 key={e._id}
                 sx={{
@@ -568,7 +558,7 @@ const Navbar = () => {
                       justifyContent: "center",
                     }}
                   >
-                    <Typography variant="body2"> View Orders </Typography>
+                    <Typography variant="body2">View Orders</Typography>
                     <FaCartArrowDown />
                   </Box>
                 </Button>
@@ -590,13 +580,25 @@ const Navbar = () => {
                 </IconButton>
 
                 <IconButton
-                  onClick={() =>  setsecondopen(true)  }
+                  onClick={() => setsecondopen(true)}
                   sx={{
                     color: "white",
                     "&:hover": { bgcolor: "rgba(255, 255, 255, 0.51)" },
                   }}
                 >
-                  <FaShoppingCart size={26} color= "#6457AE"  />
+                  <Badge
+                    badgeContent={Maptotal.length}
+                    color="error"
+                    sx={{
+                      "& .MuiBadge-badge": {
+                        right: 4,
+                        top: 4,
+                        padding: "0 4px",
+                      },
+                    }}
+                  >
+                    <FaShoppingCart size={26} color="#6457AE" />
+                  </Badge>
                 </IconButton>
                 <IconButton
                   onClick={handleClick}
@@ -650,7 +652,6 @@ const Navbar = () => {
                 </Typography>
                 <Typography
                   variant="caption"
-                  // color="success.main"
                   color={`${
                     profile?.data?.result?.kycStatus === "APPROVED"
                       ? "success"

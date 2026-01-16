@@ -65,8 +65,7 @@ function UserOrders() {
 
   const GetAddress = async (userId) => {
     try {
-      const result = await api.get(`/getkycbyid/${userId}`);
-      // console.log(result?.data?.data?.address)
+      const result = await api.get(`/getkycbyid/${userId}`); 
       setkycdata(result?.data?.data?.address);
     } catch (error) {
       console.error("Error fetching orders:", error);
@@ -77,7 +76,8 @@ function UserOrders() {
     try {
       setLoadingItems(true);
       const res = await api.get(`/orderitem/${orderId}`);
-      setSelectedOrderItems(res?.data?.result || []);
+      console.log(res?.data?.result[0].items.map((e)=>e))
+      setSelectedOrderItems(res?.data?.result[0].items.map((e)=>e) || []);
       setOpenModal(true);
     } catch (error) {
       console.error("Error fetching order items:", error);

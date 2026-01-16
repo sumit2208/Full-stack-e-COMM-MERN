@@ -62,8 +62,7 @@ const ProductCard = ({ _id, name, description, image, stock, price, DiscountAmou
       setShowQuantitySelector(false);
       setQuantity(1); 
       window.dispatchEvent(new CustomEvent('cart-updated'));
-    } catch (err) {
-      console.error("Add to cart failed:", err);
+    } catch (err) { 
       alert("Failed to add to cart. Please try again.");
     } finally {
       setIsAdding(false);

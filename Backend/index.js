@@ -37,6 +37,7 @@ const instance = new Razorpay({
   key_id: process.env.RAZORPAY_API_KEY,
   key_secret: process.env.RAZORPAY_API_SECRET_KEY,
 });
+instance.orders.all()
 
 app.post("/payment/process", async (req, res) => {
   const amt = req.body;
@@ -58,9 +59,48 @@ app.get("/getkey", async (req, res) => {
 });
 
 app.post("/paymentverification", async (req, res) => {
-  try {
-    console.log(req.body.payload?.payment?.entity);
-    const PaymentdB = req.body.payload?.payment?.entity;
+  try { 
+
+    console.log(req.body);
+
+
+    // const PaymentdB = req.body.payload?.payment?.entity;
+    // const yourOrderItems = JSON.parse(PaymentdB?.notes?.yourOrderItems);
+
+    // const OrderItem = new OrderItems({
+    //   orderId: PaymentdB?.order_id,
+    //   userId: PaymentdB?.notes?.userId,
+    //   totalAmount: PaymentdB?.amount / 100,
+    //   items: yourOrderItems.map((item) => ({
+    //     productId: item.product,
+    //     quantity: item.quantity,
+    //     price: item.price,
+    //   })),
+    // });
+    // await OrderItem.save();
+
+    const UserOrders = new UserOrder({
+      TotalAmount: req.body?.price,
+      orderId: req.body?.order_id,
+      email: req.body?.email, 
+      status: req.body?.status || "Pending",
+      orderNumber: uuidv4(),
+    });
+
+    await UserOrders.save();
+
+    // const Paymemt = new Payment({
+    //   paymentId: PaymentdB?.id,
+    //   orderId: PaymentdB?.order_id,
+    //   amount: PaymentdB?.amount / 100,
+    //   status: PaymentdB?.status,
+    //   method: PaymentdB?.method,
+    //   email: PaymentdB?.email,
+    // });
+
+    // await Paymemt.save();
+
+
     const { razorpay_payment_id, razorpay_order_id, razorpay_signature } =
       req.body;
     const body = razorpay_order_id + "|" + razorpay_payment_id;
@@ -76,59 +116,6 @@ app.post("/paymentverification", async (req, res) => {
       return res.redirect(
         `http://localhost:5173/paymentSuccess?reference=${razorpay_payment_id}`
       );
-    }
-    const yourOrderItems = JSON.parse(PaymentdB?.notes?.yourOrderItems)[0];
-
-    const OrderItem = new OrderItems({
-      orderId: PaymentdB?.order_id,
-      price: yourOrderItems?.price,
-      productId: yourOrderItems?.product,
-      quantity: yourOrderItems?.quantity,
-    });
-    await OrderItem.save();
-
-    const UserOrders = new UserOrder({
-      TotalAmount: PaymentdB?.amount / 100,
-      orderId: PaymentdB?.order_id,
-      email: PaymentdB?.email,
-      userId: PaymentdB?.notes?.userId,
-      status:PaymentdB?.status,
-      orderNumber: uuidv4(),
-    });
-
-    const result2 = await UserOrders.save();
-    if (result2) {
-      res.status(201).send({
-        message: " Successfully",
-        success: true,
-      });
-    } else {
-      res.status(401).send({
-        message: "Something went Wrong",
-        success: false,
-      });
-    }
-
-    const Paymemt = new Payment({
-      paymentId: PaymentdB?.id,
-      orderId: PaymentdB?.order_id,
-      amount: PaymentdB?.amount / 100,
-      status: PaymentdB?.status,
-      method: PaymentdB?.method,
-      email: PaymentdB?.email,
-    });
-
-    const result = await Paymemt.save();
-    if (result) {
-      res.status(201).send({
-        message: " Successfully",
-        success: true,
-      });
-    } else {
-      res.status(401).send({
-        message: "Something went Wrong",
-        success: false,
-      });
     }
   } catch (error) {
     console.error("Payment verification error:", error);

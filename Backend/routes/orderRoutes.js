@@ -14,7 +14,7 @@ const router = express.Router();
 router.get("/allorderget", authenticate, Allorders);
 router.get("/userorder/:userId", authenticate, UserOrders);
 router.patch("/updateorder/:UserId", authenticate, UpdateOrder);
-router.delete("/deleteorder/:UserId", authenticate, DeleteOrder);
+router.delete("/deleteorder/:orderId", authenticate, DeleteOrder);
 
 router.get("/orderdetailbyid/:orderId", authenticate, GetOrderDetailById);
 

@@ -43,14 +43,14 @@ export const UserOrders = async (req, res) => {
 };
 
 export const DeleteOrder = async (req, res) => {
-  const { UserId } = req.params;
+  const { orderId } = req.params;
 
-  if (!UserId) {
+  if (!orderId) {
     return res.send({ message: "Missing UserId parameter", success: false });
   }
 
   try {
-    const result = await UserOrder.deleteOne({ UserId });
+    const result = await UserOrder.deleteOne({ orderId });
     if (result.deletedCount > 0) {
       res.status(200).send({
         message: "Order Deleted Successfully",

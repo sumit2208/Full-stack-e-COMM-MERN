@@ -40,7 +40,7 @@ export default function OrderManage() {
   const fetchallproducts = async () => {
     try {
       const { data } = await api.get("/allorderget");
-      setproduct(data);
+      setproduct(data); 
     } catch (error) {
       console.error("Failed", error);
     }
@@ -59,26 +59,24 @@ export default function OrderManage() {
     setopen(false);
   };
 
-  const handleeditmodal = (UserId) => {
-    setSelectedOrderId(UserId);
-    seteditopen(true);
-  };
+  
 
   const handleeditmodalclose = () => {
     seteditopen(false);
   };
 
-  const handledelete = (UserId) => {
+  const handledelete = (orderId) => {
     setdelete(true);
-    setDelSelectedOrderId(UserId);
+    setDelSelectedOrderId(orderId);
   };
 
   const handledeleteclose = () => {
     setdelete(false);
   };
 
-  const DeleteOrder = async (UserId) => {
-    await api.delete(`/deleteorder/${UserId}`);
+  const DeleteOrder = async (orderId) => {
+    await api.delete(`/deleteorder/${orderId}`);
+    handledeleteclose()
     fetchallproducts();
   };
 
@@ -282,7 +280,7 @@ export default function OrderManage() {
                       <Button
                         variant="contained"
                         color="error"
-                        onClick={() => handledelete(row.UserId)}
+                        onClick={() => handledelete(row.orderId)}
                       >
                         <MdDeleteForever color="white" />{" "}
                       </Button>
