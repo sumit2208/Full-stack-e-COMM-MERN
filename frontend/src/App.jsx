@@ -11,11 +11,11 @@ import AllProducts from "./components/AllProducts";
 import Dashboard from "./components/Dashboard";
 import OrderManage from "./components/OrderManage";
 import AllUsers from "./components/AllUsers";
-import Permission from "./components/Permission";
-import Test from "./components/Test";
+import Permission from "./components/Permission"; 
 import PaymentSuccess from "./components/PaymentSuccess";
 import Transactions from "./components/Transaction";
 import UserOrders from "./components/UserOrders";
+import ChatBoard from "./components/ChatBoard";
 // import Footer from "./components/Footer";
 
 function App() {
@@ -38,9 +38,9 @@ function App() {
         <Route  path="/allorders" element={ <Protected Component={OrderManage} allowedRoles={["ADMIN"]} /> } /> 
         <Route  path="/products" element={  <Protected Component={Products} allowedRoles={["ADMIN", "CUSTOMER"]} /> } />
         <Route path="/kyc" element={ <Protected Component={Kyc} allowedRoles={["CUSTOMER"]} /> }  />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/verify" element={<Test />} />
+        <Route path="/signup" element={<Signup />} /> 
         <Route path="/paymentSuccess" element={<PaymentSuccess />} />
+        <Route path="/chat" element={<ChatBoard />} />
         <Route path="/razorpay" element={<Transactions />} />
         <Route path="/userOrders" element={<UserOrders />} />
       </Routes>

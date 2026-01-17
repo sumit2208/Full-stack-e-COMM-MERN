@@ -54,15 +54,7 @@ const Permission = () => {
   };
   const onSubmit = async (datas) => {
     const createRole = async () => {
-      // const res = await fetch("http://localhost:1111/createrole", {
-      //   method: "POST",
-      //   body: JSON.stringify(data),
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     Authorization: `Bearer ${token}`,
-      //   },
-      // });
-     await api.post("/createrole", datas);
+      await api.post("/createrole", datas);
       Getallpermission();
     };
     createRole();
@@ -76,21 +68,15 @@ const Permission = () => {
   const onSubmit2 = async (data) => {
     const updateRole = async (_id) => {
       await api.patch(`/updaterole/${_id}`, data);
-      console.log(data,_id)
+      console.log(data, _id);
       Getallpermission();
     };
     updateRole(selectedId);
-    hanldeclose2(); 
+    hanldeclose2();
     reset2();
   };
 
   const handleDelete = async (_id) => {
-    // const res = await fetch(`http://localhost:1111/deleterole/${_id}`, {
-    //   method: "DELETE",
-    //   headers: {
-    //     Authorization: `Bearer ${token}`,
-    //   },
-    // });
     await api.delete(`/deleterole/${_id}`);
     Getallpermission();
   };

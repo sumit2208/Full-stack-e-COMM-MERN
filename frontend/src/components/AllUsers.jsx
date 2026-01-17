@@ -64,14 +64,7 @@ const AllUsers = () => {
   };
   const onSubmit = async (data) => {
     const upadteuser = async (_id) => {
-      // const res = await fetch(`http://localhost:1111/updateuser/${_id}`, {
-      //   method: "PATCH",
-      //   body: JSON.stringify(data),
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     Authorization: `Bearer ${token}`,
-      //   },
-      // });
+    
        await api.patch(`/updateuser/${_id}`, data);
       getalluser();
     };

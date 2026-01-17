@@ -128,8 +128,7 @@ function UserOrders() {
                   variant="subtitle1"
                   fontWeight={600}
                 >
-                  status: {order?.status || "N/A"}{" "}
-                  {order?.status === "captured" ? <FcApproval /> : <FcCancel />}
+                  status: {order?.status} 
                 </Typography>
                 <Button
                   onClick={() => handleViewOrderItems(order?.orderId)}

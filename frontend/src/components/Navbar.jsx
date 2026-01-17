@@ -22,6 +22,7 @@ import {
   Badge,
 } from "@mui/material";
 import { IoMenu } from "react-icons/io5";
+import { BsChatSquareDotsFill } from "react-icons/bs";
 import { useState } from "react";
 import { IoHomeSharp } from "react-icons/io5";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -80,7 +81,6 @@ const Navbar = () => {
           : item
       )
     );
-
     const updatedItem = itemlist.find((item) => item._id === itemId);
     const newQuantity = (updatedItem?.quantity || 1) + 1;
 
@@ -148,6 +148,9 @@ const Navbar = () => {
   const handleViewOrders = () => {
     navigate("/userOrders");
   };
+  const handlechat = () =>{
+    navigate('/chat')
+  }
 
   useEffect(() => {
     const _id = localStorage.getItem("_id");
@@ -167,7 +170,6 @@ const Navbar = () => {
     await api.delete(`/usercartdelete/${_id}`);
   };
 
-  // Razorpay
   const handlecheckout = async (amount) => {
     try {
       const { data: keydata } = await axios.get("http://localhost:1111/getkey");
@@ -175,24 +177,19 @@ const Navbar = () => {
 
       const { data: orderData } = await axios.post(
         "https://unagitated-jamie-waxier.ngrok-free.dev/payment/process",
-        { amount }
-      );
-
-      const { order } = orderData;
-
-      await axios.post(
-        `https://unagitated-jamie-waxier.ngrok-free.dev/paymentverification`,
         {
-          yourOrderItems: JSON.stringify(
-            itemlist.map((item) => ({
-              product: item._id,
-              quantity: item.quantity || 1,
-              price: item.DiscountedAmount,
-              order_id: order.id,
-            }))
-          ),
+          amount,
+          userId: profile?.data?.result?._id,
+          email: profile?.data?.result?.email,
+          items: itemlist.map((item) => ({
+            product: item._id,
+            quantity: item.quantity || 1,
+            price: item.DiscountedAmount,
+          })),
         }
       );
+
+      const { order, userOrderId } = orderData;
 
       const options = {
         key,
@@ -203,6 +200,7 @@ const Navbar = () => {
         order_id: order.id,
         notes: {
           userId: profile?.data?.result?._id,
+          userOrderId: userOrderId,
         },
 
         callback_url:
@@ -223,7 +221,6 @@ const Navbar = () => {
       };
 
       const rzp = new Razorpay(options);
-      console.log(options);
       rzp.open();
     } catch (err) {
       alert("Error starting payment. Please try again.");
@@ -570,6 +567,10 @@ const Navbar = () => {
                 >
                   <MdOutlineVerifiedUser size={26} color="#6457AE" />
                 </IconButton>
+                <Button variant="contained" sx={{bgcolor: "#6457AE",display:"flex",gap:"10px",alignItems:"center",justifyContent:"space-between"}} onClick={handlechat}>
+                    <Typography>Chat</Typography>
+                   <BsChatSquareDotsFill />
+                </Button>
                 <IconButton
                   sx={{
                     color: "white",
