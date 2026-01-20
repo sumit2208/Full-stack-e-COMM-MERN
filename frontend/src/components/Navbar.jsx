@@ -156,8 +156,7 @@ const Navbar = () => {
     const _id = localStorage.getItem("_id");
     const Profile = async (_id) => {
       try {
-        const ProfileData = await api.get(`/profile/${_id}`);
-        console.log(ProfileData);
+        const ProfileData = await api.get(`/profile/${_id}`); 
         setprofile(ProfileData);
       } catch (error) {
         console.error("Failed", error);

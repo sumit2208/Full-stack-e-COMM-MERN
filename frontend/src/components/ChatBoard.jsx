@@ -1,44 +1,126 @@
-import {
-  Box,
-  Typography,
-  TextField,
-  Button,
-  Input,
-  Divider,
-  IconButton,
-} from "@mui/material";
-import React, { useEffect, useState } from "react";
-import SearchIcon from "@mui/icons-material/Search";
+import { Box, Typography, IconButton } from "@mui/material";
+import React, { useEffect, useMemo, useState } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
-import api from "../api";
 import SendIcon from "@mui/icons-material/Send";
 import { io } from "socket.io-client";
+import InputEmoji from "react-input-emoji";
+import axios from "axios";
+
 const ChatBoard = () => {
-  const socket = io("http://localhost:1111", {
-    withCredentials: true,
-    extraHeaders: {
-      "my-custom-header": "abcd",
-    },
-  });
-  const [data, setdata] = useState([]);
-  const getalluser = async () => {
-    try {
-      const { data } = await api.get("/getallusers");
-      setdata(data);
-    } catch (err) {
-      console.error("Failed ", err);
-    }
-  };
+  const myId = localStorage.getItem("_id");
+
+  const socket = useMemo(() => {
+    return io("http://localhost:1111", {
+      auth: { userId: myId },
+      reconnection: true,
+      autoConnect: true,
+      transports: ["websocket"],
+    });
+  }, [myId]);
+
+  const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [selectedName, setSelectedName] = useState("");
+  const [selectedConvId, setSelectedConvId] = useState("");
+  const [text, setText] = useState("");
+
   useEffect(() => {
-    getalluser();
-  }, []);
+    const fetchConversations = async () => {
+      try {
+        const res = await axios.get(
+          `http://localhost:1111/chats/getconversation/${myId}`,
+        );
+        setConversations(res.data.NewConversations || res.data.data || []);
+      } catch (err) {
+        console.error("Failed to load conversations:", err);
+      }
+    };
+
+    fetchConversations();
+
+    socket.emit("setup", myId);
+  }, [myId, socket]);
+
+  useEffect(() => {
+    const handleNewMessage = (newMsg) => {
+      if (newMsg.conversationId === selectedConvId) {
+        setMessages((prev) => {
+          const alreadyExists = prev.some(
+            (m) =>
+              m._id === newMsg._id ||
+              (m._id?.startsWith("temp-") && m.message === newMsg.message),
+          );
+          if (alreadyExists) return prev;
+          return [
+            ...prev,
+            { ...newMsg, _id: newMsg._id || `real-${Date.now()}` },
+          ];
+        });
+      } else {
+        console.log(
+          `Message ignored — belongs to conv ${newMsg.conversationId}, current: ${selectedConvId}`,
+        );
+      }
+    };
+
+    socket.on("messagereceived", handleNewMessage);
+
+    return () => {
+      socket.off("messagereceived", handleNewMessage);
+    };
+  }, [socket, selectedConvId]);
+
+  useEffect(() => {
+    if (!selectedConvId) return;
+
+    const fetchMessages = async () => {
+      try {
+        const res = await axios.get(
+          `http://localhost:1111/chats/getmessage/${selectedConvId}/msg`,
+        );
+        setMessages(res.data.messages || []);
+      } catch (err) {
+        console.error("Failed to load messages:", err);
+      }
+    };
+
+    fetchMessages();
+    socket.emit("join chat", selectedConvId);
+  }, [selectedConvId, socket]);
+
+  const handleSelectConversation = (name, convId) => {
+    if (convId === selectedConvId) return;
+    setSelectedName(name);
+    setSelectedConvId(convId);
+    setMessages([]);
+  };
+
+  const handleSend = () => {
+    if (!text.trim() || !selectedConvId) return;
+
+    const optimisticMsg = {
+      _id: `temp-${Date.now()}`,
+      SenderId: myId,
+      conversationId: selectedConvId,
+      message: text,
+      type: "text",
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setText("");
+
+    socket.emit("sendMessage", {
+      conversationId: selectedConvId,
+      message: text,
+      type: "text",
+    });
+
+    console.log("Sent message:", text);
+  };
+
   return (
-    <Box
-      sx={{
-        fontFamily: "Arial, sans-serif",
-        p: 10,
-      }}
-    >
+    <Box sx={{ fontFamily: "Arial, sans-serif", p: 4 }}>
       <Box
         sx={{
           bgcolor: "#C8C8D0",
@@ -49,231 +131,141 @@ const ChatBoard = () => {
           boxShadow: 3,
         }}
       >
-        <Box sx={{ height: "535px" }}>
-          <Box
-            sx={{ bgcolor: "#6457AE", p: 2, borderRadius: "10px 10px 0px 0px" }}
-          >
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "5px",
-              }}
-            >
-              <SearchIcon sx={{ color: "white" }} />
-              <Input />
-            </Box>
-          </Box>
+        <Box sx={{ width: 320, height: "580px" }}>
           <Box
             sx={{
               bgcolor: "#F5F5F5",
               p: 2,
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-              color: "white",
-              borderRadius: "0px 0px 10px 10px",
-              overflowY: "scroll",
-              height: "90%",
-              scrollbarWidth: "none",
+              maxHeight: "calc(100% - 20px)",
+              overflowY: "auto",
+              borderRadius: "10px",
             }}
           >
-            {data?.result?.map((e) => (
-              <>
-                <Box
-                  sx={{
-                    p: 0.9,
-                    borderRadius: "10px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
+            {conversations.map((conv) => (
+              <Box
+                key={conv.conversationId}
+                onClick={() =>
+                  handleSelectConversation(
+                    conv.userDetail.name,
+                    conv.conversationId,
+                  )
+                }
+                sx={{
+                  p: 1.5,
+                  borderRadius: "10px",
+                  cursor: "pointer",
+                  bgcolor:
+                    selectedConvId === conv.conversationId
+                      ? "#e0e0ff"
+                      : "transparent",
+                  "&:hover": { bgcolor: "#f0f0ff" },
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2,
+                  mb: 1,
+                }}
+              >
+                <AccountCircleIcon fontSize="large" />
+                <Typography
+                  fontWeight={
+                    selectedConvId === conv.conversationId ? 600 : 500
+                  }
                 >
-                  <IconButton>
-                    <AccountCircleIcon />
-                  </IconButton>
-                  <Typography sx={{ fontWeight: 600, color: "black" }}>
-                    {e.name}
-                  </Typography>
-                </Box>
-              </>
+                  {conv.userDetail.name}
+                </Typography>
+              </Box>
             ))}
           </Box>
         </Box>
 
-        <Box sx={{ width: "100%" }}>
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            maxHeight: "600px",
+          }}
+        >
           <Box
             sx={{
               bgcolor: "#6457AE",
               color: "white",
               p: 2,
-              textAlign: "center",
-              boxShadow: 2,
-              display:"flex",
-              alignItems:"center",
-              justifyContent:"flex-start",
-              gap:"20px",
-              borderRadius: "10px 10px 0px 0px",
+              borderRadius: "10px 10px 0 0",
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
             }}
           >
-            <IconButton>
-                     <AccountCircleIcon />
-            </IconButton>
-            <Typography variant="h6">Sumit</Typography>
+            <AccountCircleIcon fontSize="large" />
+            <Typography variant="h6">
+              {selectedName || "Select a chat"}
+            </Typography>
           </Box>
+
           <Box
             sx={{
+              flex: 1,
               p: 2,
               bgcolor: "grey.100",
-              overflow: "auto",
+              overflowY: "auto",
+              scrollbarWidth: "none",
               display: "flex",
               flexDirection: "column",
-              gap: 1,
+              gap: 1.5,
             }}
           >
-            <Box
-              sx={{
-                alignSelf: "flex-start",
-                bgcolor: "white",
+            {messages.map((msg) => {
+              const isMe = msg.SenderId === myId;
 
-                p: 1.5,
-                borderRadius: 2,
-                maxWidth: "70%",
-                boxShadow: 1,
-              }}
-            >
-              <Typography variant="body1" color="text.primary">
-                Hello! How are you?
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                alignSelf: "flex-end",
-                bgcolor: "#6457AE",
-                color: "white",
-                p: 1.5,
-                borderRadius: 2,
-                maxWidth: "70%",
-                boxShadow: 1,
-              }}
-            >
-              <Typography variant="body1">
-                I'm good, thanks! How about you?
-              </Typography>
-            </Box>
-          </Box>{" "}
-          <Box
-            sx={{
-              p: 2,
-              bgcolor: "grey.100",
-              overflow: "auto",
-              display: "flex",
-              flexDirection: "column",
-              gap: 1,
-            }}
-          >
-            <Box
-              sx={{
-                alignSelf: "flex-start",
-                bgcolor: "white",
-
-                p: 1.5,
-                borderRadius: 2,
-                maxWidth: "70%",
-                boxShadow: 1,
-              }}
-            >
-              <Typography variant="body1" color="text.primary">
-                Hello! How are you?
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                alignSelf: "flex-end",
-                bgcolor: "#6457AE",
-                color: "white",
-                p: 1.5,
-                borderRadius: 2,
-                maxWidth: "70%",
-                boxShadow: 1,
-              }}
-            >
-              <Typography variant="body1">
-                I'm good, thanks! How about you?
-              </Typography>
-            </Box>
+              return (
+                <Box
+                  key={msg._id}
+                  sx={{
+                    alignSelf: isMe ? "flex-end" : "flex-start",
+                    maxWidth: "70%",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      bgcolor: isMe ? "#6457AE" : "white",
+                      color: isMe ? "white" : "text.primary",
+                      boxShadow: 1,
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    <Typography variant="body1">{msg.message}</Typography>
+                  </Box>
+                </Box>
+              );
+            })}
           </Box>
-          <Box
-            sx={{
-              p: 2,
-              bgcolor: "grey.100",
-              overflow: "auto",
-              display: "flex",
-              flexDirection: "column",
-              gap: 1,
-            }}
-          >
-            <Box
-              sx={{
-                alignSelf: "flex-start",
-                bgcolor: "white",
 
-                p: 1.5,
-                borderRadius: 2,
-                maxWidth: "70%",
-                boxShadow: 1,
-              }}
-            >
-              <Typography variant="body1" color="text.primary">
-                Hello! How are you?
-              </Typography>
-            </Box>
-            <Box
-              sx={{
-                alignSelf: "flex-end",
-                bgcolor: "#6457AE",
-                color: "white",
-                p: 1.5,
-                borderRadius: 2,
-                maxWidth: "70%",
-                boxShadow: 1,
-              }}
-            >
-              <Typography variant="body1">
-                I'm good, thanks! How about you?
-              </Typography>
-            </Box>
-          </Box>
           <Box
             sx={{
-              p: 2,
-              bgcolor: "background.paper",
+              p: 1.5,
+              bgcolor: "white",
+              borderTop: "1px solid #ddd",
               display: "flex",
+              alignItems: "center",
               gap: 1,
-              borderTop: "1px solid",
-              borderColor: "divider",
-              borderRadius: "0px 0px 10px 10px",
+              borderRadius: "0 0 10px 10px",
             }}
           >
-            <TextField
-              fullWidth
-              variant="outlined"
-              size="small"
+            <InputEmoji
+              value={text}
+              onChange={setText}
+              cleanOnEnter
+              onEnter={handleSend}
               placeholder="Type a message..."
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 20,
-                },
-              }}
+              height={40}
+              borderColor="#6457AE"
             />
-            <Button
-              variant="contained"
-              sx={{ borderRadius: 2, bgcolor: "#6457AE" }}
-            >
-              <SendIcon sx={{ fontSize: "20px" }} />
-            </Button>
+            <IconButton color="primary" onClick={handleSend}>
+              <SendIcon />
+            </IconButton>
           </Box>
         </Box>
       </Box>

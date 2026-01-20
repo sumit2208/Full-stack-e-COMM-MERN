@@ -4,6 +4,7 @@ import cors from "cors";
 import userRouter from "./routes/userRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
+import ChatRoutes from "./routes/ChatRoutes.js";
 import { refreshAccessToken } from "./controller/userController.js";
 import cookieParser from "cookie-parser";
 import Razorpay from "razorpay";
@@ -13,17 +14,18 @@ import UserOrder from "./Models/UserOrder.js";
 import { v4 as uuidv4 } from "uuid";
 import OrderItems from "./Models/OrderItems.js";
 import http from "http";
-
 import { Server } from "socket.io";
+import Message from "./Models/Message.js";
+import Conversation from "./Models/Conversation.js";
 
 const app = express();
-const server = http.createServer(app); 
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL,        
+    origin: process.env.FRONTEND_URL,
     methods: ["GET", "POST"],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
 app.use(cookieParser());
@@ -34,7 +36,7 @@ app.use(
     origin: process.env.FRONTEND_URL,
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  }),
 );
 
 app.use(express.json());
@@ -43,6 +45,7 @@ app.post("/refresh", refreshAccessToken);
 app.use(userRouter);
 app.use(orderRoutes);
 app.use(productRoutes);
+app.use(ChatRoutes);
 
 await connectDB();
 
@@ -117,7 +120,7 @@ app.post("/paymentverification", async (req, res) => {
 
     await UserOrder.findOneAndUpdate(
       { orderId: PaymentdB?.order_id || razorpay_order_id },
-      { status: PaymentdB?.status }
+      { status: PaymentdB?.status },
     );
 
     const PaymentRecord = new Payment({
@@ -132,7 +135,7 @@ app.post("/paymentverification", async (req, res) => {
 
     if (isAuthentic) {
       return res.redirect(
-        `http://localhost:5173/paymentSuccess?reference=${razorpay_payment_id}`
+        `http://localhost:5173/paymentSuccess?reference=${razorpay_payment_id}`,
       );
     }
   } catch (error) {
@@ -146,9 +149,105 @@ app.post("/paymentverification", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 1111;
-io.on('connection',(socket)=>{
-  console.log('a user connected',socket.id)
-})
 
- 
+io.use((socket, next) => {
+  const userId = socket.handshake.auth?.userId;
+  if (!userId) {
+    return next(new Error("Authentication error - no userId is there"));
+  }
+  socket.user = { id: userId };
+  next();
+});
+
+io.on("connection", (socket) => {
+  socket.on("setup", (userId) => {
+    socket.join(userId);
+    console.log(userId);
+    socket.emit("connected");
+  });
+
+  socket.on("join chat", (room) => {
+    socket.join(room);
+    console.log("User JOined The Room :" + room);
+  });
+
+  socket.on("sendMessage", async (data) => {
+    const { conversationId, message, type = "text" } = data;
+
+    if (!conversationId || !message?.trim()) {
+      socket.emit("error", { message: "Missing data" });
+      return;
+    }
+
+    try {
+      const newMsg = await Message.create({
+        SenderId: socket.user.id,
+        conversationId,
+        message,
+        type,
+      });
+
+      const payload = {
+        _id: newMsg._id.toString(),
+        SenderId: socket.user.id,
+        conversationId: conversationId,
+        message: newMsg.message,
+        type: newMsg.type,
+        createdAt: new Date().toISOString(),
+      };
+
+      io.to(conversationId).emit("messagereceived", payload);
+    } catch (error) {
+      console.error("Send Message Error:", error);
+    }
+  });
+
+  socket.on("startTyping", ({ conversationId }) => {
+    if (!conversationId) return;
+    socket.to(`conversation:${conversationId}`).emit("userTyping", {
+      userId: socket.user._id,
+      isTyping: true,
+    });
+  });
+
+  socket.on("stopTyping", ({ conversationId }) => {
+    if (!conversationId) return;
+    socket.to(`conversation:${conversationId}`).emit("userTyping", {
+      userId: socket.user.id,
+      isTyping: false,
+    });
+  });
+
+  socket.on(
+    "deleteMessage",
+    async ({ messageId, deleteForEveryone = true }) => {
+      try {
+        const msg = await Message.findOne({
+          _id: messageId,
+          SenderId: socket.user.id,
+        });
+
+        if (!msg)
+          return socket.emit("error", { msg: "Not found or not yours" });
+
+        if (deleteForEveryone) {
+          await Message.updateOne({ _id: messageId }, { isDeleted: true });
+          io.to(`conversation:${msg.conversationId}`).emit("messageDeleted", {
+            messageId,
+            deletedBy: socket.user.id,
+            deleteForEveryone: true,
+          });
+        } else {
+          socket.emit("messageDeleted", {
+            messageId,
+            deleteForEveryone: false,
+          });
+        }
+      } catch (err) {
+        console.error("deleteMessage error:", err);
+      }
+    },
+  );
+});
+
 server.listen(PORT);

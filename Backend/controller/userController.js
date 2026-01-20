@@ -94,7 +94,7 @@ export const userLogin = async (req, res) => {
     await RefreshToken.findOneAndUpdate(
       { userId: user._id },
       { token: refreshToken, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 },
-      { upsert: true, new: true, useFindAndModify: false }
+      { upsert: true, new: true, useFindAndModify: false },
     );
 
     res.cookie("refreshToken", refreshToken, {
@@ -342,7 +342,7 @@ export const UserUpdateData = async (req, res) => {
     const result = await User.findByIdAndUpdate(
       _id,
       { $set: req.body },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!result) {

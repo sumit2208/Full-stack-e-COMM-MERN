@@ -8,8 +8,8 @@ const userSchema = new mongoose.Schema(
     kycStatus: { type: String, default: "Pending" },
     role: { type: String, default: "CUSTOMER" },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-const User = mongoose.model("users", userSchema,'users');
+const User = mongoose.model("users", userSchema, "users");
 export default User;
