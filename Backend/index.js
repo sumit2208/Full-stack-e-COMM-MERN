@@ -195,7 +195,45 @@ io.on("connection", (socket) => {
         type: newMsg.type,
         createdAt: new Date().toISOString(),
       };
+      const conversation = await Conversation.findById(conversationId).select(
+        "participants unreadCounts",
+      );
 
+      if (conversation) {
+        const receivers = conversation.participants.filter(
+          (p) => p.toString() !== socket.user.id,
+        );
+
+        if (receivers.length > 0) {
+          await Conversation.updateOne(
+            { _id: conversationId },
+            { $inc: { "unreadCounts.$[elem].count": 1 } },
+            {
+              arrayFilters: [{ "elem.user": { $in: receivers.map(String) } }],
+            },
+          );
+
+          receivers.forEach(async (receiverId) => {
+            const receiverStr = receiverId.toString();
+
+            const updatedConv =
+              await Conversation.findById(conversationId).select(
+                "unreadCounts",
+              );
+
+            const countEntry = updatedConv.unreadCounts?.find(
+              (entry) => entry.user.toString() === receiverStr,
+            );
+
+            const newCount = countEntry ? countEntry.count : 1;
+
+            io.to(receiverStr).emit("unreadCountUpdated", {
+              conversationId,
+              count: newCount,
+            });
+          });
+        }
+      }
       io.to(conversationId).emit("messagereceived", payload);
     } catch (error) {
       console.error("Send Message Error:", error);
@@ -203,19 +241,61 @@ io.on("connection", (socket) => {
   });
 
   socket.on("startTyping", ({ conversationId }) => {
-    if (!conversationId) return;
-    socket.to(`conversation:${conversationId}`).emit("userTyping", {
-      userId: socket.user._id,
+    if (!conversationId) return console.log("error");
+
+    socket.to(conversationId).emit("startTyping", {
+      userId: socket.user?.id,
       isTyping: true,
+      conversationId,
     });
   });
 
   socket.on("stopTyping", ({ conversationId }) => {
-    if (!conversationId) return;
-    socket.to(`conversation:${conversationId}`).emit("userTyping", {
-      userId: socket.user.id,
+    if (!conversationId) return console.log("error");
+    socket.to(conversationId).emit("stopTyping", {
+      userId: socket.user?.id,
       isTyping: false,
+      conversationId,
     });
+  });
+
+  socket.on("markMessagesRead", async ({ conversationId }) => {
+    if (!conversationId) return;
+
+    try {
+      const unreadMessages = await Message.find({
+        conversationId,
+        SenderId: { $ne: socket.user.id },
+        "Read_User.user": { $ne: socket.user.id },
+      }).select("_id SenderId");
+
+      if (unreadMessages.length === 0) return;
+
+      await Message.updateMany(
+        {
+          _id: { $in: unreadMessages.map((m) => m._id) },
+          "Read_User.user": { $ne: socket.user.id },
+        },
+        {
+          $push: {
+            Read_User: {
+              user: socket.user.id,
+              readAt: new Date(),
+            },
+          },
+        },
+      );
+
+      const readMessageIds = unreadMessages.map((m) => m._id.toString());
+
+      socket.to(conversationId).emit("messagesRead", {
+        conversationId,
+        readerId: socket.user.id,
+        messageIds: readMessageIds,
+      });
+    } catch (err) {
+      console.error("markMessagesRead error:", err);
+    }
   });
 
   socket.on(

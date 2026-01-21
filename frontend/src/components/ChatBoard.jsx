@@ -1,12 +1,22 @@
-import { Box, Typography, IconButton } from "@mui/material";
-import React, { useEffect, useMemo, useState } from "react";
+import { Box, Typography, IconButton, TextField } from "@mui/material";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SendIcon from "@mui/icons-material/Send";
 import { io } from "socket.io-client";
-import InputEmoji from "react-input-emoji";
 import axios from "axios";
+import Lottie from "react-lottie";
+import animationData from "../animations/typing.json";
 
 const ChatBoard = () => {
+  const TYping = {
+    loop: true,
+    autoplay: true,
+    animationData: animationData,
+    rendererSettings: {
+      preserveAspectRatio: "xMidYMid slice",
+    },
+  };
+
   const myId = localStorage.getItem("_id");
 
   const socket = useMemo(() => {
@@ -23,7 +33,13 @@ const ChatBoard = () => {
   const [selectedName, setSelectedName] = useState("");
   const [selectedConvId, setSelectedConvId] = useState("");
   const [text, setText] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState({}); // { conversationId: count }
 
+  const typingTimeoutRef = useRef(null);
+  const messagesEndRef = useRef(null);
+
+  // Fetch conversations + setup socket listeners
   useEffect(() => {
     const fetchConversations = async () => {
       try {
@@ -39,7 +55,42 @@ const ChatBoard = () => {
     fetchConversations();
 
     socket.emit("setup", myId);
-  }, [myId, socket]);
+    socket.emit("getMyUnreadCounts");
+
+    socket.on("startTyping", () => setIsTyping(true));
+    socket.on("stopTyping", () => setIsTyping(false));
+
+    socket.on("unreadCounts", (counts) => {
+      setUnreadCounts(counts);
+    });
+
+    socket.on("unreadCountUpdated", ({ conversationId, count }) => {
+      setUnreadCounts((prev) => ({
+        ...prev,
+        [conversationId]: count,
+      }));
+    });
+
+    socket.on("messagereceived", (newMsg) => {
+      if (
+        newMsg.SenderId !== myId &&
+        newMsg.conversationId !== selectedConvId
+      ) {
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [newMsg.conversationId]: (prev[newMsg.conversationId] || 0) + 1,
+        }));
+      }
+    });
+
+    return () => {
+      socket.off("startTyping");
+      socket.off("stopTyping");
+      socket.off("unreadCounts");
+      socket.off("unreadCountUpdated");
+      socket.off("messagereceived");
+    };
+  }, [myId, socket, selectedConvId]);
 
   useEffect(() => {
     const handleNewMessage = (newMsg) => {
@@ -56,10 +107,6 @@ const ChatBoard = () => {
             { ...newMsg, _id: newMsg._id || `real-${Date.now()}` },
           ];
         });
-      } else {
-        console.log(
-          `Message ignored — belongs to conv ${newMsg.conversationId}, current: ${selectedConvId}`,
-        );
       }
     };
 
@@ -86,10 +133,14 @@ const ChatBoard = () => {
 
     fetchMessages();
     socket.emit("join chat", selectedConvId);
+    socket.emit("markMessagesRead", { conversationId: selectedConvId });
   }, [selectedConvId, socket]);
 
   const handleSelectConversation = (name, convId) => {
     if (convId === selectedConvId) return;
+
+    setUnreadCounts((prev) => ({ ...prev, [convId]: 0 }));
+
     setSelectedName(name);
     setSelectedConvId(convId);
     setMessages([]);
@@ -115,9 +166,42 @@ const ChatBoard = () => {
       message: text,
       type: "text",
     });
-
-    console.log("Sent message:", text);
   };
+
+  const handleTyping = (e) => {
+    const value = e.target.value;
+    setText(value);
+
+    if (!selectedConvId) return;
+
+    socket.emit("startTyping", { conversationId: selectedConvId });
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stopTyping", { conversationId: selectedConvId });
+    }, 500);
+  };
+
+  const scrollToBottom = (force = false) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({
+        behavior: force ? "auto" : "smooth",
+        block: "end",
+      });
+    }
+  };
+
+  useEffect(() => {
+    const isSwitchingChat = selectedConvId;
+    scrollToBottom(!isSwitchingChat);
+  }, [messages, isTyping]);
+
+  useEffect(() => {
+    scrollToBottom(true);
+  }, [selectedConvId]);
 
   return (
     <Box sx={{ fontFamily: "Arial, sans-serif", p: 4 }}>
@@ -141,40 +225,67 @@ const ChatBoard = () => {
               borderRadius: "10px",
             }}
           >
-            {conversations.map((conv) => (
-              <Box
-                key={conv.conversationId}
-                onClick={() =>
-                  handleSelectConversation(
-                    conv.userDetail.name,
-                    conv.conversationId,
-                  )
-                }
-                sx={{
-                  p: 1.5,
-                  borderRadius: "10px",
-                  cursor: "pointer",
-                  bgcolor:
-                    selectedConvId === conv.conversationId
-                      ? "#e0e0ff"
-                      : "transparent",
-                  "&:hover": { bgcolor: "#f0f0ff" },
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 2,
-                  mb: 1,
-                }}
-              >
-                <AccountCircleIcon fontSize="large" />
-                <Typography
-                  fontWeight={
-                    selectedConvId === conv.conversationId ? 600 : 500
+            {conversations.map((conv) => {
+              const unread = unreadCounts[conv.conversationId] || 0;
+
+              return (
+                <Box
+                  key={conv.conversationId}
+                  onClick={() =>
+                    handleSelectConversation(
+                      conv.userDetail.name,
+                      conv.conversationId,
+                    )
                   }
+                  sx={{
+                    p: 1.5,
+                    borderRadius: "10px",
+                    cursor: "pointer",
+                    bgcolor:
+                      selectedConvId === conv.conversationId
+                        ? "#e0e0ff"
+                        : "transparent",
+                    "&:hover": { bgcolor: "#f0f0ff" },
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 2,
+                    mb: 1,
+                  }}
                 >
-                  {conv.userDetail.name}
-                </Typography>
-              </Box>
-            ))}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <AccountCircleIcon fontSize="large" />
+                    <Typography
+                      fontWeight={
+                        selectedConvId === conv.conversationId ? 600 : 500
+                      }
+                    >
+                      {conv.userDetail.name}
+                    </Typography>
+                  </Box>
+
+                  {unread > 0 && (
+                    <Box
+                      sx={{
+                        minWidth: 24,
+                        height: 24,
+                        borderRadius: "50%",
+                        bgcolor: "#25D366",
+                        color: "white",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "0.85rem",
+                        fontWeight: "bold",
+                        px: 1,
+                      }}
+                    >
+                      {unread > 99 ? "99+" : unread}
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
           </Box>
         </Box>
 
@@ -207,7 +318,7 @@ const ChatBoard = () => {
             sx={{
               flex: 1,
               p: 2,
-              bgcolor: "grey.100",
+              bgcolor: "#dfdfe2",
               overflowY: "auto",
               scrollbarWidth: "none",
               display: "flex",
@@ -217,7 +328,6 @@ const ChatBoard = () => {
           >
             {messages.map((msg) => {
               const isMe = msg.SenderId === myId;
-
               return (
                 <Box
                   key={msg._id}
@@ -230,7 +340,7 @@ const ChatBoard = () => {
                     sx={{
                       p: 1.5,
                       borderRadius: 2,
-                      bgcolor: isMe ? "#6457AE" : "white",
+                      bgcolor: isMe ? "#6457aedc" : "white",
                       color: isMe ? "white" : "text.primary",
                       boxShadow: 1,
                       wordBreak: "break-word",
@@ -241,6 +351,22 @@ const ChatBoard = () => {
                 </Box>
               );
             })}
+
+            {isTyping && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ pl: 2 }}
+              >
+                <Lottie
+                  options={TYping}
+                  width={70}
+                  style={{ marginBottom: 15, marginLeft: -10 }}
+                />
+              </Typography>
+            )}
+
+            <div ref={messagesEndRef} />
           </Box>
 
           <Box
@@ -254,16 +380,34 @@ const ChatBoard = () => {
               borderRadius: "0 0 10px 10px",
             }}
           >
-            <InputEmoji
+            <TextField
               value={text}
-              onChange={setText}
-              cleanOnEnter
-              onEnter={handleSend}
+              onChange={handleTyping}
               placeholder="Type a message..."
-              height={40}
-              borderColor="#6457AE"
+              variant="outlined"
+              size="small"
+              fullWidth
+              multiline
+              maxRows={4}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "20px",
+                  bgcolor: "white",
+                },
+              }}
             />
-            <IconButton color="primary" onClick={handleSend}>
+
+            <IconButton
+              color="primary"
+              onClick={handleSend}
+              disabled={!text.trim()}
+            >
               <SendIcon />
             </IconButton>
           </Box>
