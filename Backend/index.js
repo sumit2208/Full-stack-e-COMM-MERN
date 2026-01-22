@@ -168,9 +168,10 @@ io.on("connection", (socket) => {
 
   socket.on("join chat", (room) => {
     socket.join(room);
-    console.log("User JOined The Room :" + room);
+    console.log("User joined The Room :" + room);
   });
 
+  // send
   socket.on("sendMessage", async (data) => {
     const { conversationId, message, type = "text" } = data;
 
@@ -195,6 +196,7 @@ io.on("connection", (socket) => {
         type: newMsg.type,
         createdAt: new Date().toISOString(),
       };
+
       const conversation = await Conversation.findById(conversationId).select(
         "participants unreadCounts",
       );
@@ -205,64 +207,88 @@ io.on("connection", (socket) => {
         );
 
         if (receivers.length > 0) {
-          await Conversation.updateOne(
-            { _id: conversationId },
-            { $inc: { "unreadCounts.$[elem].count": 1 } },
-            {
-              arrayFilters: [{ "elem.user": { $in: receivers.map(String) } }],
-            },
-          );
-
-          receivers.forEach(async (receiverId) => {
+          for (const receiverId of receivers) {
             const receiverStr = receiverId.toString();
 
-            const updatedConv =
-              await Conversation.findById(conversationId).select(
-                "unreadCounts",
-              );
-
-            const countEntry = updatedConv.unreadCounts?.find(
+            const existingIndex = conversation.unreadCounts.findIndex(
               (entry) => entry.user.toString() === receiverStr,
             );
 
-            const newCount = countEntry ? countEntry.count : 1;
+            if (existingIndex >= 0) {
+              conversation.unreadCounts[existingIndex].count += 1;
+            } else {
+              conversation.unreadCounts.push({
+                user: receiverId,
+                count: 1,
+              });
+            }
 
-            io.to(receiverStr).emit("unreadCountUpdated", {
-              conversationId,
-              count: newCount,
-            });
-          });
+            const countEntry = conversation.unreadCounts.find(
+              (entry) => entry.user.toString() === receiverStr,
+            );
+
+            if (countEntry) {
+              io.to(receiverStr).emit("unreadCountUpdated", {
+                conversationId,
+                count: countEntry.count,
+                userId: receiverStr,
+              });
+            }
+          }
+          await conversation.save();
         }
       }
+
       io.to(conversationId).emit("messagereceived", payload);
     } catch (error) {
       console.error("Send Message Error:", error);
     }
   });
 
+  // start typing
   socket.on("startTyping", ({ conversationId }) => {
     if (!conversationId) return console.log("error");
 
     socket.to(conversationId).emit("startTyping", {
       userId: socket.user?.id,
-      isTyping: true,
       conversationId,
     });
   });
 
+  // stop typing
   socket.on("stopTyping", ({ conversationId }) => {
     if (!conversationId) return console.log("error");
     socket.to(conversationId).emit("stopTyping", {
       userId: socket.user?.id,
-      isTyping: false,
       conversationId,
     });
   });
 
+  // MessageReadMark
   socket.on("markMessagesRead", async ({ conversationId }) => {
     if (!conversationId) return;
 
     try {
+      const conversation = await Conversation.findById(conversationId);
+
+      if (!conversation) return;
+
+      const userUnreadIndex = conversation.unreadCounts.findIndex(
+        (entry) => entry.user.toString() === socket.user.id,
+      );
+
+      if (userUnreadIndex >= 0) {
+        conversation.unreadCounts[userUnreadIndex].count = 0;
+
+        io.to(socket.user.id).emit("unreadCountUpdated", {
+          conversationId,
+          count: 0,
+          userId: socket.user.id,
+        });
+
+        await conversation.save();
+      }
+
       const unreadMessages = await Message.find({
         conversationId,
         SenderId: { $ne: socket.user.id },
@@ -298,6 +324,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  //delete
   socket.on(
     "deleteMessage",
     async ({ messageId, deleteForEveryone = true }) => {

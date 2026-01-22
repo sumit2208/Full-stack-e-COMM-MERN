@@ -566,7 +566,7 @@ const Navbar = () => {
                 >
                   <MdOutlineVerifiedUser size={26} color="#6457AE" />
                 </IconButton>
-                <Button variant="contained" sx={{bgcolor: "#6457AE",display:"flex",gap:"10px",alignItems:"center",justifyContent:"space-between"}} onClick={handlechat}>
+                <Button variant="contained" sx={{bgcolor: "#075E54",display:"flex",gap:"10px",alignItems:"center",justifyContent:"space-between"}} onClick={handlechat}>
                     <Typography>Chat</Typography>
                    <BsChatSquareDotsFill />
                 </Button>

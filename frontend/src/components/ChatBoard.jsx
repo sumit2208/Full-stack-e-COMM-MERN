@@ -1,11 +1,17 @@
-import { Box, Typography, IconButton, TextField } from "@mui/material";
+import {
+  Box,
+  Typography,
+  IconButton,
+  TextField,
+  CircularProgress,
+} from "@mui/material";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SendIcon from "@mui/icons-material/Send";
 import { io } from "socket.io-client";
 import axios from "axios";
 import Lottie from "react-lottie";
-import animationData from "../animations/typing.json";
+import animationData from "../animations/Typings.json";
 
 const ChatBoard = () => {
   const TYping = {
@@ -34,63 +40,72 @@ const ChatBoard = () => {
   const [selectedConvId, setSelectedConvId] = useState("");
   const [text, setText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [unreadCounts, setUnreadCounts] = useState({}); // { conversationId: count }
+  const [unreadCounts, setUnreadCounts] = useState({});
+
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const previousScrollHeightRef = useRef(0);
 
-  // Fetch conversations + setup socket listeners
+  const MESSAGES_PER_PAGE = 10;
+
   useEffect(() => {
-    const fetchConversations = async () => {
-      try {
-        const res = await axios.get(
-          `http://localhost:1111/chats/getconversation/${myId}`,
+  const fetchConversations = async () => {
+    try {
+      const res = await axios.get(
+        `http://localhost:1111/chats/getconversation/${myId}`
+      );
+      const convs = res.data.NewConversations || res.data.data || [];
+      setConversations(convs);
+ 
+      const initialCounts = {};
+      convs.forEach((conv) => { 
+        const userUnreadEntry = conv.unreadCounts?.find(
+          (entry) => entry.user?.toString() === myId
         );
-        setConversations(res.data.NewConversations || res.data.data || []);
-      } catch (err) {
-        console.error("Failed to load conversations:", err);
-      }
-    };
+        initialCounts[conv.conversationId] = userUnreadEntry?.count || 0;
+      });
+      setUnreadCounts(initialCounts);
+    } catch (err) {
+      console.error("Failed to load conversations:", err);
+    }
+  };
 
-    fetchConversations();
+  fetchConversations();
 
-    socket.emit("setup", myId);
-    socket.emit("getMyUnreadCounts");
+  socket.emit("setup", myId);
 
-    socket.on("startTyping", () => setIsTyping(true));
-    socket.on("stopTyping", () => setIsTyping(false));
+  socket.on("startTyping", ({ userId, conversationId }) => {
+    if (conversationId === selectedConvId && userId !== myId) {
+      setIsTyping(true);
+    }
+  });
 
-    socket.on("unreadCounts", (counts) => {
-      setUnreadCounts(counts);
-    });
+  socket.on("stopTyping", ({ userId, conversationId }) => {
+    if (conversationId === selectedConvId && userId !== myId) {
+      setIsTyping(false);
+    }
+  });
 
-    socket.on("unreadCountUpdated", ({ conversationId, count }) => {
+  socket.on("unreadCountUpdated", ({ conversationId, count, userId }) => { 
+    if (userId === myId) {
       setUnreadCounts((prev) => ({
         ...prev,
         [conversationId]: count,
       }));
-    });
+    }
+  });
 
-    socket.on("messagereceived", (newMsg) => {
-      if (
-        newMsg.SenderId !== myId &&
-        newMsg.conversationId !== selectedConvId
-      ) {
-        setUnreadCounts((prev) => ({
-          ...prev,
-          [newMsg.conversationId]: (prev[newMsg.conversationId] || 0) + 1,
-        }));
-      }
-    });
-
-    return () => {
-      socket.off("startTyping");
-      socket.off("stopTyping");
-      socket.off("unreadCounts");
-      socket.off("unreadCountUpdated");
-      socket.off("messagereceived");
-    };
-  }, [myId, socket, selectedConvId]);
+  return () => {
+    socket.off("startTyping");
+    socket.off("stopTyping");
+    socket.off("unreadCountUpdated");
+  };
+}, [myId, socket, selectedConvId]);
 
   useEffect(() => {
     const handleNewMessage = (newMsg) => {
@@ -107,6 +122,10 @@ const ChatBoard = () => {
             { ...newMsg, _id: newMsg._id || `real-${Date.now()}` },
           ];
         });
+
+        if (newMsg.SenderId !== myId) {
+          socket.emit("markMessagesRead", { conversationId: selectedConvId });
+        }
       }
     };
 
@@ -115,7 +134,7 @@ const ChatBoard = () => {
     return () => {
       socket.off("messagereceived", handleNewMessage);
     };
-  }, [socket, selectedConvId]);
+  }, [socket, selectedConvId, myId]);
 
   useEffect(() => {
     if (!selectedConvId) return;
@@ -123,9 +142,12 @@ const ChatBoard = () => {
     const fetchMessages = async () => {
       try {
         const res = await axios.get(
-          `http://localhost:1111/chats/getmessage/${selectedConvId}/msg`,
+          `http://localhost:1111/chats/getmessage/${selectedConvId}/msg?page=1&limit=${MESSAGES_PER_PAGE}`,
         );
-        setMessages(res.data.messages || []);
+        const fetchedMessages = res.data.messages || [];
+        setMessages(fetchedMessages);
+        setPage(1);
+        setHasMore(fetchedMessages.length === MESSAGES_PER_PAGE);
       } catch (err) {
         console.error("Failed to load messages:", err);
       }
@@ -136,15 +158,71 @@ const ChatBoard = () => {
     socket.emit("markMessagesRead", { conversationId: selectedConvId });
   }, [selectedConvId, socket]);
 
-  const handleSelectConversation = (name, convId) => {
-    if (convId === selectedConvId) return;
+  const loadMoreMessages = async () => {
+    if (isLoadingMore || !hasMore || !selectedConvId) return;
 
-    setUnreadCounts((prev) => ({ ...prev, [convId]: 0 }));
+    setIsLoadingMore(true);
+    const nextPage = page + 1;
 
-    setSelectedName(name);
-    setSelectedConvId(convId);
-    setMessages([]);
+    try {
+      const res = await axios.get(
+        `http://localhost:1111/chats/getmessage/${selectedConvId}/msg?page=${nextPage}&limit=${MESSAGES_PER_PAGE}`,
+      );
+      const olderMessages = res.data.messages || [];
+
+      if (olderMessages.length > 0) {
+        if (messagesContainerRef.current) {
+          previousScrollHeightRef.current =
+            messagesContainerRef.current.scrollHeight;
+        }
+
+        setMessages((prev) => [...olderMessages, ...prev]);
+        setPage(nextPage);
+        setHasMore(olderMessages.length === MESSAGES_PER_PAGE);
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error("Failed to load more messages:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
   };
+
+  useEffect(() => {
+    if (messagesContainerRef.current && previousScrollHeightRef.current > 0) {
+      const newScrollHeight = messagesContainerRef.current.scrollHeight;
+      const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
+      messagesContainerRef.current.scrollTop = scrollDiff;
+      previousScrollHeightRef.current = 0;
+    }
+  }, [messages]);
+
+  const handleScroll = (e) => {
+    const { scrollTop } = e.target;
+
+    if (scrollTop < 100 && hasMore && !isLoadingMore) {
+      loadMoreMessages();
+    }
+  };
+
+  const handleSelectConversation = (name, convId) => {
+  if (convId === selectedConvId) return;
+ 
+  setUnreadCounts((prev) => ({ 
+    ...prev, 
+    [convId]: 0 
+  }));
+
+  setSelectedName(name);
+  setSelectedConvId(convId);
+  setMessages([]);
+  setIsTyping(false);
+  setPage(1);
+  setHasMore(true);
+ 
+  socket.emit("markMessagesRead", { conversationId: convId });
+};
 
   const handleSend = () => {
     if (!text.trim() || !selectedConvId) return;
@@ -195,12 +273,21 @@ const ChatBoard = () => {
   };
 
   useEffect(() => {
-    const isSwitchingChat = selectedConvId;
-    scrollToBottom(!isSwitchingChat);
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } =
+        messagesContainerRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+
+      if (isNearBottom) {
+        scrollToBottom(false);
+      }
+    }
   }, [messages, isTyping]);
 
   useEffect(() => {
-    scrollToBottom(true);
+    if (selectedConvId) {
+      setTimeout(() => scrollToBottom(true), 100);
+    }
   }, [selectedConvId]);
 
   return (
@@ -264,7 +351,7 @@ const ChatBoard = () => {
                     </Typography>
                   </Box>
 
-                  {unread > 0 && (
+                  {unread > 0 && selectedConvId !== conv.conversationId && (
                     <Box
                       sx={{
                         minWidth: 24,
@@ -299,7 +386,7 @@ const ChatBoard = () => {
         >
           <Box
             sx={{
-              bgcolor: "#6457AE",
+              bgcolor: "#075e54",
               color: "white",
               p: 2,
               borderRadius: "10px 10px 0 0",
@@ -315,6 +402,8 @@ const ChatBoard = () => {
           </Box>
 
           <Box
+            ref={messagesContainerRef}
+            onScroll={handleScroll}
             sx={{
               flex: 1,
               p: 2,
@@ -326,6 +415,12 @@ const ChatBoard = () => {
               gap: 1.5,
             }}
           >
+            {isLoadingMore && (
+              <Box sx={{ display: "flex", justifyContent: "center", p: 2 }}>
+                <CircularProgress size={24} />
+              </Box>
+            )}
+
             {messages.map((msg) => {
               const isMe = msg.SenderId === myId;
               return (
@@ -340,30 +435,43 @@ const ChatBoard = () => {
                     sx={{
                       p: 1.5,
                       borderRadius: 2,
-                      bgcolor: isMe ? "#6457aedc" : "white",
+                      display: "flex",
+                      gap: "5px",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      bgcolor: isMe ? "#26c964d4" : "white",
                       color: isMe ? "white" : "text.primary",
                       boxShadow: 1,
                       wordBreak: "break-word",
                     }}
                   >
                     <Typography variant="body1">{msg.message}</Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "10px",
+                        marginBottom: 0,
+                        color: "#272626ae",
+                      }}
+                    >
+                      {new Date(msg.createdAt).toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        hour12: true,
+                      })}
+                    </Typography>
                   </Box>
                 </Box>
               );
             })}
 
             {isTyping && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ pl: 2 }}
-              >
+              <Box sx={{ alignSelf: "flex-start" }}>
                 <Lottie
                   options={TYping}
                   width={70}
-                  style={{ marginBottom: 15, marginLeft: -10 }}
+                  style={{ marginLeft: -10 }}
                 />
-              </Typography>
+              </Box>
             )}
 
             <div ref={messagesEndRef} />

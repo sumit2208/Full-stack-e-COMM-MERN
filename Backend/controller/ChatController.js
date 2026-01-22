@@ -8,23 +8,13 @@ export const getUserConversations = async (req, res) => {
     const { CUserId } = req.params;
     if (!CUserId) {
       res.status(400).send({
-        message: "userId NOt Found",
+        message: "userId Not Found",
       });
     }
 
     const conversations = await Conversation.find({
       participants: CUserId,
     });
-    // .populate({
-    //   path: "lastMessage",
-    //   select: "SenderId message type",
-    //   populate: {
-    //     path: "SenderId",
-    //     select: "name email",
-    //   },
-    // })
-    // .sort({ lastMessageAt: -1 })
-    // .lean();
 
     const NewConversations = await Promise.all(
       conversations.map(async (conv) => {
@@ -54,13 +44,12 @@ export const getUserConversations = async (req, res) => {
 
         return {
           conversationId: conv._id.toString(),
-          type: conv.type || "single",
-          message: conv.lastMessage?.message || "",
+          type: conv.type || "single", 
           lastMessage: conv.lastMessage
             ? {
                 senderId: conv.lastMessage.senderId?._id?.toString(),
-                content: conv.lastMessage.message || "innapnacs",
-                type: conv.lastMessage.type || "single",
+                content: conv.lastMessage.message,
+                type: conv.lastMessage.type,
                 createdAt: conv.lastMessage.createdAt,
               }
             : null,
@@ -78,7 +67,7 @@ export const getUserConversations = async (req, res) => {
       NewConversations,
     });
   } catch (error) {
-    console.error(" conversations error:", error);
+    console.error("conversations error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error while fetching conversations",
@@ -89,6 +78,8 @@ export const getUserConversations = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { con_id } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
 
     if (!mongoose.isValidObjectId(con_id)) {
       return res.status(400).json({
@@ -97,17 +88,30 @@ export const getMessages = async (req, res) => {
       });
     }
 
-    const messages = await Message.find({ conversationId: con_id });
-    // .populate({
-    //   path: "SenderId",
-    //   select: "name email",
-    // })
-    // .sort({ createdAt: 1 })
-    // .lean();
+    const skip = (page - 1) * limit;
+
+    const totalMessages = await Message.countDocuments({
+      conversationId: con_id,
+    });
+
+    console.log(totalMessages);
+
+    const messages = await Message.find({ conversationId: con_id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    const reversedMessages = messages.reverse();
 
     return res.status(200).json({
       success: true,
-      messages,
+      messages: reversedMessages,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalMessages / limit),
+        totalMessages,
+        hasMore: skip + messages.length < totalMessages,
+      },
     });
   } catch (error) {
     console.error("getMessages error:", error);
