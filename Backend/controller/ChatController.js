@@ -44,7 +44,7 @@ export const getUserConversations = async (req, res) => {
 
         return {
           conversationId: conv._id.toString(),
-          type: conv.type || "single", 
+          type: conv.type || "single",
           lastMessage: conv.lastMessage
             ? {
                 senderId: conv.lastMessage.senderId?._id?.toString(),
