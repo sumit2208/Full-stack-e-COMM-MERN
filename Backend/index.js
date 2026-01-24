@@ -171,6 +171,39 @@ io.on("connection", (socket) => {
     console.log("User joined The Room :" + room);
   });
 
+  // group chat
+
+  socket.on("GroupChat", async (data) => {
+    const { name, participants, type = "group" } = data;
+
+    try {
+      await Conversation.create({
+        name: name,
+        type,
+        participants: participants,
+      });
+    } catch (error) {
+      console.error("Create Group Chat   Error:", error);
+    }
+  });
+
+  // Edit chat
+
+  socket.on("EditChat", async (data) => {
+    const { msg, msg_id, SenderId, userId } = data;
+
+    if (SenderId !== userId) {
+    }
+    try {
+      await Message.findByIdAndUpdate(
+        { _id: msg_id },
+        { message: msg, isEdited: true },
+      );
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  });
+
   // send
   socket.on("sendMessage", async (data) => {
     const { conversationId, message, type = "text" } = data;

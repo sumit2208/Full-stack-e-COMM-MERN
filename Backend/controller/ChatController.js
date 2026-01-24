@@ -38,7 +38,7 @@ export const getUserConversations = async (req, res) => {
           }
         } else {
           userDetail = {
-            name: conv.name || "Group Chat",
+            name: conv.name || "group",
           };
         }
 
@@ -94,9 +94,15 @@ export const getMessages = async (req, res) => {
       conversationId: con_id,
     });
 
-    console.log(totalMessages);
-
     const messages = await Message.find({ conversationId: con_id })
+      .populate({
+        path: "SenderId",
+        select: "name",
+      })
+      .populate({
+        path: "conversationId",
+        select: "type",
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
