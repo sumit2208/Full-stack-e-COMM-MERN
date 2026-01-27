@@ -14,7 +14,10 @@ export const getUserConversations = async (req, res) => {
 
     const conversations = await Conversation.find({
       participants: CUserId,
-    });
+    }).populate({
+      path:"Admin",
+      select:"name _id"
+    })
 
     const NewConversations = await Promise.all(
       conversations.map(async (conv) => {
@@ -44,7 +47,8 @@ export const getUserConversations = async (req, res) => {
 
         return {
           conversationId: conv._id.toString(),
-          type: conv.type || "single",
+          type: conv.type,
+          Admin : conv.Admin,
           lastMessage: conv.lastMessage
             ? {
                 senderId: conv.lastMessage.senderId?._id?.toString(),

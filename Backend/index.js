@@ -17,6 +17,10 @@ import http from "http";
 import { Server } from "socket.io";
 import Message from "./Models/Message.js";
 import Conversation from "./Models/Conversation.js";
+import multer from "multer";
+import path from "path";
+import mongoose, { Schema } from "mongoose";
+import { fileURLToPath } from "url";
 
 const app = express();
 const server = http.createServer(app);
@@ -27,6 +31,9 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
@@ -162,25 +169,24 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   socket.on("setup", (userId) => {
     socket.join(userId);
-    console.log(userId);
     socket.emit("connected");
   });
 
   socket.on("join chat", (room) => {
     socket.join(room);
-    console.log("User joined The Room :" + room);
   });
 
   // group chat
 
   socket.on("GroupChat", async (data) => {
-    const { name, participants, type = "group" } = data;
+    const { name, participants, type = "group", Admin } = data;
 
     try {
       await Conversation.create({
         name: name,
         type,
         participants: participants,
+        Admin: Admin,
       });
     } catch (error) {
       console.error("Create Group Chat   Error:", error);
@@ -361,10 +367,10 @@ io.on("connection", (socket) => {
   socket.on(
     "deleteMessage",
     async ({ messageId, deleteForEveryone = true }) => {
+      console.log(messageId);
       try {
         const msg = await Message.findOne({
           _id: messageId,
-          SenderId: socket.user.id,
         });
 
         if (!msg)
@@ -390,4 +396,51 @@ io.on("connection", (socket) => {
   );
 });
 
+const ImageSchema = new mongoose.Schema({
+  name: String,
+  path: String,
+  UserId: {
+    type: Schema.Types.ObjectId,
+    ref: "User",
+  },
+});
+
+const Image = mongoose.model("Image", ImageSchema, "Image");
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads");
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  },
+});
+const upload = multer({ storage });
+
+app.post("/uploads", upload.single("image"), async (req, res) => {
+  if (!req.file) return res.status(401).json({ message: "No File Uploaded" });
+  const newImage = new Image({
+    name: req.file.originalname,
+    path: req.file.filename,
+    UserId: req.body._id,
+  });
+  await newImage.save();
+});
+
+app.get("/getprofileimage/:_id", async (req, res) => {
+  const _id = req.params;
+  const result = await Image.findOne({ UserId: _id }).populate({
+    path: "UserId",
+    select: "name",
+  });
+  if (result) {
+    res.status(200).json({
+      result,
+      messsage: "Succesfully Fetch ProfileImage",
+      success: true,
+    });
+  } else {
+    res.status(500).json({ success: false, message: "error.message" });
+  }
+});
 server.listen(PORT);

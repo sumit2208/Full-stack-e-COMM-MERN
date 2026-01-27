@@ -22,6 +22,10 @@ const ConversationSchema = new mongoose.Schema({
       required: true,
     },
   ],
+  Admin : {
+    type : Schema.Types.ObjectId,
+    ref : 'User'
+  },
   logo: {
     type: String,
     default: null,

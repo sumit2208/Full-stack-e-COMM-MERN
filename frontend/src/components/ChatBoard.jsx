@@ -9,7 +9,6 @@ import {
   Input,
   Menu,
   MenuItem,
-  Checkbox,
 } from "@mui/material";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
@@ -26,6 +25,7 @@ import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import DoNotDisturbIcon from "@mui/icons-material/DoNotDisturb";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 
 const ChatBoard = () => {
   const TYping = {
@@ -59,6 +59,12 @@ const ChatBoard = () => {
   const [User, setUser] = useState([]);
   const [GroupUserSelect, setGroupUserSelect] = useState([myId]);
   const [GroupName, setGroupName] = useState("");
+  const [DeleteMessage, setDeleteMessage] = useState(false);
+  const [DeleteModal, setDeleteModal] = useState(false);
+  const [SeletectedMsgId, setSeletectedMsgId] = useState([]);
+
+  const [AdminName, setAdminName] = useState([]);
+  const [Admin_id, setAdmin_id] = useState([]);
 
   const [EditMsg, SetEditMsg] = useState("");
   const [Msgediticon, setMsgediticon] = useState(false);
@@ -86,6 +92,8 @@ const ChatBoard = () => {
 
   const MESSAGES_PER_PAGE = 10;
 
+  // UseEffect Function
+
   const AllUsers = async () => {
     try {
       const { data } = await api.get("/getallusers");
@@ -95,10 +103,6 @@ const ChatBoard = () => {
       console.error("Failed to All Users:", error);
     }
   };
-
-  useEffect(() => {
-    AllUsers();
-  }, []);
 
   const fetchConversations = async () => {
     try {
@@ -121,10 +125,29 @@ const ChatBoard = () => {
     }
   };
 
-  useEffect(() => {
-    fetchConversations();
+  const fetchMessages = async () => {
+    try {
+      const res = await axios.get(
+        `http://localhost:1111/chats/getmessage/${selectedConvId}/msg?page=1&limit=${MESSAGES_PER_PAGE}`,
+      );
+      const fetchedMessages = res.data.messages || [];
+      setMessages(fetchedMessages);
+      setPage(1);
+      setHasMore(fetchedMessages.length === MESSAGES_PER_PAGE);
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+    }
+  };
 
+  //  UseEffect
+
+  useEffect(() => {
+    AllUsers();
+  }, []);
+
+  useEffect(() => {
     socket.emit("setup", myId);
+    fetchConversations();
 
     socket.on("startTyping", ({ userId, conversationId }) => {
       if (conversationId === selectedConvId && userId !== myId) {
@@ -182,19 +205,7 @@ const ChatBoard = () => {
       socket.off("messagereceived", handleNewMessage);
     };
   }, [socket, selectedConvId, myId]);
-  const fetchMessages = async () => {
-    try {
-      const res = await axios.get(
-        `http://localhost:1111/chats/getmessage/${selectedConvId}/msg?page=1&limit=${MESSAGES_PER_PAGE}`,
-      );
-      const fetchedMessages = res.data.messages || [];
-      setMessages(fetchedMessages);
-      setPage(1);
-      setHasMore(fetchedMessages.length === MESSAGES_PER_PAGE);
-    } catch (err) {
-      console.error("Failed to load messages:", err);
-    }
-  };
+
   useEffect(() => {
     if (!selectedConvId) return;
 
@@ -245,7 +256,9 @@ const ChatBoard = () => {
     }
   };
 
-  const handleSelectConversation = (name, convId) => {
+  const handleSelectConversation = (name, convId, adminname, admin_id) => {
+    setAdminName(adminname);
+    setAdmin_id(admin_id);
     if (convId === selectedConvId) return;
 
     setUnreadCounts((prev) => ({
@@ -348,6 +361,7 @@ const ChatBoard = () => {
     socket.emit("GroupChat", {
       name: GroupName || "GroupChatDemo",
       participants: GroupUserSelect,
+      Admin: myId,
     });
 
     HandleClose();
@@ -360,12 +374,6 @@ const ChatBoard = () => {
   };
 
   const HandleEdit = (msg_id, senderid) => {
-    console.log(
-      "msg_id:" + msg_id,
-      "sender_id:" + senderid,
-      "userid:" + myId,
-      EditMsg,
-    );
     if (senderid !== myId) {
       console.log("senderid and userid does not match");
     } else {
@@ -392,10 +400,60 @@ const ChatBoard = () => {
   };
 
   const OpenEditModal = (senderid) => {
-    if (senderid == myId) {
+    if (senderid === myId || myId === Admin_id) {
       setMsgediticon(true);
     }
   };
+
+  const handleDeleteModal = () => {
+    setDeleteModal(true);
+  };
+
+  const HandleCloseDeleteModal = () => {
+    setDeleteModal(false);
+    setMsgediticon(false);
+  };
+
+  // Delete socket
+  const HandleDeleteMsg = (_id) => {
+    socket.emit("deleteMessage", {
+      messageId: _id,
+    });
+    fetchMessages();
+    HandleCloseDeleteModal();
+  };
+  const [image, setimage] = useState(null);
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setimage(file);
+    }
+  };
+  const handleUpload = async () => {
+    const formdata = new FormData();
+    formdata.append("image", image);
+    formdata.append("_id", myId);
+    try {
+      const res = await axios.post("http://localhost:1111/uploads", formdata, {
+        headers: {
+          "Content-Type": "multipart/formdata",
+        },
+      });
+    } catch (error) {}
+  };
+
+  const [Profile, setProfile] = useState([]);
+
+  const FetchImage = async () => {
+    const res = await axios.get(
+      `http://localhost:1111/getprofileimage/${myId}`,
+    );
+    setProfile(res?.data?.result);
+  };
+
+  useEffect(() => {
+    FetchImage();
+  }, []);
   return (
     <>
       {/* modals */}
@@ -566,6 +624,36 @@ const ChatBoard = () => {
                   alignItems: "center",
                   borderRadius: "10px",
                   color: "white",
+                  marginBottom: "7px",
+                }}
+              >
+                <Typography>{Profile?.UserId?.name}</Typography>
+
+                {/* <input
+                  accept="image/*"
+                  type="file"
+                  onChange={handleImageSelect}
+                  style={{ borderRadius: 50, width: "28px", height: "28px" }}
+                /> */}
+
+                <img
+                  height={30}
+                  width={50}
+                  src={`http://localhost:1111/uploads/${Profile?.path}`}
+                />
+                {/* <Button onClick={handleUpload} sx={{ borderRadius: 50 }}>
+                  Upload
+                </Button> */}
+              </Box>
+              <Box
+                sx={{
+                  bgcolor: "#075E54",
+                  p: 1.5,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  borderRadius: "10px",
+                  color: "white",
                 }}
               >
                 <Typography sx={{ fontWeight: 700 }}>ExpressFlyChat</Typography>
@@ -584,6 +672,8 @@ const ChatBoard = () => {
                       handleSelectConversation(
                         conv.userDetail.name,
                         conv.conversationId,
+                        conv?.Admin?.name,
+                        conv?.Admin?._id,
                       )
                     }
                     sx={{
@@ -604,7 +694,9 @@ const ChatBoard = () => {
                   >
                     <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                       {conv.type === "group" ? (
-                        <PeopleAltIcon fontSize="medium" />
+                        <>
+                          <PeopleAltIcon fontSize="medium" />
+                        </>
                       ) : (
                         <AccountCircleIcon fontSize="medium" />
                       )}
@@ -676,12 +768,22 @@ const ChatBoard = () => {
                 <Typography variant="h6">
                   {selectedName || "Select a chat"}
                 </Typography>
+
+                <Typography>{AdminName}</Typography>
               </Box>
               <Box sx={{ display: "flex", gap: "20px" }}>
                 {Msgediticon ? (
-                  <IconButton>
-                    <EditIcon sx={{ color: "white" }} onClick={EditMOdal} />
-                  </IconButton>
+                  <>
+                    <IconButton>
+                      <EditIcon sx={{ color: "white" }} onClick={EditMOdal} />
+                    </IconButton>
+                    <IconButton>
+                      <DeleteForeverIcon
+                        sx={{ color: "white" }}
+                        onClick={handleDeleteModal}
+                      />
+                    </IconButton>
+                  </>
                 ) : (
                   ""
                 )}
@@ -722,16 +824,70 @@ const ChatBoard = () => {
               )}
 
               {messages.map((msg) => {
-                const isMe = msg.SenderId === myId;
+                const isMe = msg.SenderId._id === myId;
                 return (
                   <Box
                     key={msg._id}
                     sx={{
                       alignSelf: isMe ? "flex-end" : "flex-start",
                       maxWidth: "70%",
-                      cursor: "pointer", 
+                      cursor: "pointer",
                     }}
                   >
+                    {/* Start Modal */}
+                    <Modal
+                      open={DeleteModal}
+                      onClose={HandleCloseDeleteModal}
+                      sx={{
+                        bgcolor: "transparent",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          bgcolor: "#075E54",
+                          height: "150px",
+                          width: "250px",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "20px",
+                          borderRadius: "15px",
+                        }}
+                      >
+                        <Typography sx={{ color: "white" }}>
+                          Are You Sure!
+                        </Typography>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: "15px",
+                          }}
+                        >
+                          <Button
+                            variant="contained"
+                            sx={{ bgcolor: "red", borderRadius: "8px" }}
+                            onClick={HandleCloseDeleteModal}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="contained"
+                            sx={{ bgcolor: "green", borderRadius: "8px" }}
+                            onClick={() => HandleDeleteMsg(msg._id)}
+                          >
+                            Confirm
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Modal>
+                    {/* End Modal */}
+
                     <Box
                       sx={{
                         p: 1.5,
@@ -760,42 +916,50 @@ const ChatBoard = () => {
                         }}
                         onClick={() => OpenEditModal(msg.SenderId._id)}
                       >
+                        {/* Start Modal */}
                         <Modal
                           open={editopen}
                           onClose={handleEditClose}
                           sx={{
-                            top: "50%",
-                            left: "50%",
-                            transform: "translate(-50%, -50%)",
-                            p: 2,
-                            width: "350px",
-                            height: "70px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            bgcolor: "transparent",
                           }}
                         >
-                          <>
-                            <Box sx={{ display: "flex", alignItems: "center" }}>
-                              <Input
-                                placeholder="Edit msg"
-                                sx={{
-                                  width: "300px",
-                                  bgcolor: "white",
-                                  borderRadius: "10px",
-                                  p: 1,
-                                }}
-                                value={EditMsg}
-                                onChange={EditMsgValue}
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              bgcolor: "#272626ae",
+                              p: 2,
+                              borderRadius: "8px",
+                            }}
+                          >
+                            <Input
+                              placeholder="Edit msg"
+                              sx={{
+                                width: "300px",
+                                bgcolor: "white",
+                                borderRadius: "10px",
+                                p: 1,
+                              }}
+                              value={EditMsg}
+                              onChange={EditMsgValue}
+                            />
+                            <IconButton>
+                              <CheckCircleIcon
+                                sx={{ color: "white" }}
+                                onClick={() =>
+                                  HandleEdit(msg._id, msg.SenderId._id)
+                                }
                               />
-                              <IconButton>
-                                <CheckCircleIcon
-                                  sx={{ color: "white" }}
-                                  onClick={() =>
-                                    HandleEdit(msg._id, msg.SenderId._id)
-                                  }
-                                />
-                              </IconButton>
-                            </Box>
-                          </>
+                            </IconButton>
+                          </Box>
                         </Modal>
+                        {/* End Modal */}
+
+                        {/* Deleted Msg */}
                         {!msg.isDeleted ? (
                           <Typography variant="body1">{msg.message}</Typography>
                         ) : (
@@ -806,7 +970,7 @@ const ChatBoard = () => {
                               gap: "5px",
                             }}
                           >
-                            <DoNotDisturbIcon />{" "}
+                            <DoNotDisturbIcon sx={{ color: "#272626ae" }} />{" "}
                             <Typography
                               sx={{
                                 color: "#272626ae",
@@ -818,6 +982,7 @@ const ChatBoard = () => {
                             </Typography>
                           </Box>
                         )}
+                        {/* Deleted Msg End*/}
 
                         <Typography
                           sx={{ fontSize: "10px", color: "#272626ae" }}
