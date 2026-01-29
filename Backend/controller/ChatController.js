@@ -14,10 +14,15 @@ export const getUserConversations = async (req, res) => {
 
     const conversations = await Conversation.find({
       participants: CUserId,
-    }).populate({
-      path:"Admin",
-      select:"name _id"
     })
+      .populate({
+        path: "Admin",
+        select: "name _id",
+      })
+      .populate({
+        path: "lastMessage",
+        select: "_id message type createdAt",
+      });
 
     const NewConversations = await Promise.all(
       conversations.map(async (conv) => {
@@ -48,11 +53,11 @@ export const getUserConversations = async (req, res) => {
         return {
           conversationId: conv._id.toString(),
           type: conv.type,
-          Admin : conv.Admin,
+          Admin: conv.Admin,
           lastMessage: conv.lastMessage
             ? {
-                senderId: conv.lastMessage.senderId?._id?.toString(),
-                content: conv.lastMessage.message,
+                _id: conv.lastMessage.SenderId?._id?.toString(),
+                message: conv.lastMessage.message,
                 type: conv.lastMessage.type,
                 createdAt: conv.lastMessage.createdAt,
               }
@@ -99,10 +104,10 @@ export const getMessages = async (req, res) => {
     });
 
     const messages = await Message.find({ conversationId: con_id })
-      .populate({
-        path: "SenderId",
-        select: "name",
-      })
+      // .populate({
+      //   path: "SenderId",
+      //   select: "name _id",
+      // })
       .populate({
         path: "conversationId",
         select: "type",
@@ -128,6 +133,62 @@ export const getMessages = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error while fetching messages",
+    });
+  }
+};
+
+export const getViewParticipants = async (req, res) => {
+  const { convId } = req.params;
+
+  try {
+    const result = await Conversation.findOne({ _id: convId }).populate({
+      path: "participants",
+      select: "name email",
+    });
+    if (result) {
+      res.status(200).json({
+        result,
+        success: true,
+      });
+    } else {
+      res.status(400).josn({
+        success: false,
+        message: "Not Fetch",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+export const AddParticipants = async (req, res) => {
+  const { convId } = req.params;
+  try {
+    const result = Conversation.findByIdAndUpdate(
+      { _id: convId },
+      { $push: { participants: req.body.userId } },
+      { new: true },
+    );
+
+    if (result) {
+      res.status(200).json({
+        result,
+        success: true,
+        message: "User Add to Conversation",
+      });
+    } else {
+      res.status(400).josn({
+        success: false,
+        message: "Not Fetch",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
     });
   }
 };

@@ -9,6 +9,7 @@ import {
   Input,
   Menu,
   MenuItem,
+  Select,
 } from "@mui/material";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
@@ -26,6 +27,7 @@ import DoNotDisturbIcon from "@mui/icons-material/DoNotDisturb";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
+import PersonAddIcon from "@mui/icons-material/PersonAdd";
 
 const ChatBoard = () => {
   const TYping = {
@@ -69,18 +71,6 @@ const ChatBoard = () => {
   const [EditMsg, SetEditMsg] = useState("");
   const [Msgediticon, setMsgediticon] = useState(false);
   const [editopen, seteditopen] = useState(false);
-
-  // GroupChat Menu
-  const [anchorEl, setAnchorEl] = useState(null);
-  const open2 = Boolean(anchorEl);
-
-  const handleClose2 = () => {
-    setAnchorEl(null);
-  };
-
-  const handleClick = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
 
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -161,6 +151,14 @@ const ChatBoard = () => {
       }
     });
 
+    socket.on("MessageEdit", ({ NewText, messageid }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg._id === messageid ? { ...msg, message: NewText } : msg,
+        ),
+      );
+    });
+
     socket.on("unreadCountUpdated", ({ conversationId, count, userId }) => {
       if (userId === myId) {
         setUnreadCounts((prev) => ({
@@ -170,10 +168,20 @@ const ChatBoard = () => {
       }
     });
 
+    socket.on("messageDeleted", ({ MesId }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg._id === MesId ? { ...msg, isDeleted: true } : msg,
+        ),
+      );
+    });
+
     return () => {
       socket.off("startTyping");
       socket.off("stopTyping");
       socket.off("unreadCountUpdated");
+      socket.off("MessageEdit");
+      socket.off("messageDeleted");
     };
   }, [myId, socket, selectedConvId]);
 
@@ -182,15 +190,12 @@ const ChatBoard = () => {
       if (newMsg.conversationId === selectedConvId) {
         setMessages((prev) => {
           const alreadyExists = prev.some(
-            (m) =>
-              m._id === newMsg._id ||
-              (m._id?.startsWith("temp-") && m.message === newMsg.message),
+            (m) => m._id === newMsg._id,
+            // ||
+            // (m._id?.startsWith("temp-") && m.message === newMsg.message),
           );
           if (alreadyExists) return prev;
-          return [
-            ...prev,
-            { ...newMsg, _id: newMsg._id || `real-${Date.now()}` },
-          ];
+          return [...prev, { ...newMsg, _id: newMsg._id }];
         });
 
         if (newMsg.SenderId !== myId) {
@@ -209,8 +214,8 @@ const ChatBoard = () => {
   useEffect(() => {
     if (!selectedConvId) return;
 
-    fetchMessages();
     socket.emit("join chat", selectedConvId);
+    fetchMessages();
     socket.emit("markMessagesRead", { conversationId: selectedConvId });
   }, [selectedConvId, socket]);
 
@@ -280,7 +285,7 @@ const ChatBoard = () => {
     if (!text.trim() || !selectedConvId) return;
 
     const optimisticMsg = {
-      _id: `temp-${Date.now()}`,
+      // _id: `temp-${Date.now()}`,
       SenderId: myId,
       conversationId: selectedConvId,
       message: text,
@@ -373,20 +378,23 @@ const ChatBoard = () => {
     handleClose2();
   };
 
-  const HandleEdit = (msg_id, senderid) => {
+  const HandleEdit = (senderid) => {
     if (senderid !== myId) {
-      console.log("senderid and userid does not match");
+      console.log("senderid and userid does not match", senderid, myId);
     } else {
       setMsgediticon(true);
       socket.emit("EditChat", {
-        msg_id: msg_id,
+        msg_id: SeletectedMsgId,
         msg: EditMsg,
         userId: myId,
         SenderId: senderid,
+        conId: selectedConvId,
       });
     }
+
     handleEditClose();
     fetchMessages();
+    setMsgediticon(false);
   };
 
   const EditMOdal = () => {
@@ -394,12 +402,15 @@ const ChatBoard = () => {
   };
   const handleEditClose = () => {
     seteditopen(false);
+    handleClose3();
+    setSeletectedMsgId([]);
   };
   const EditMsgValue = (e) => {
     SetEditMsg(e.target.value);
   };
 
-  const OpenEditModal = (senderid) => {
+  const OpenEditModal = (senderid, msg_id) => {
+    setSeletectedMsgId(msg_id);
     if (senderid === myId || myId === Admin_id) {
       setMsgediticon(true);
     }
@@ -412,35 +423,37 @@ const ChatBoard = () => {
   const HandleCloseDeleteModal = () => {
     setDeleteModal(false);
     setMsgediticon(false);
+    handleClose3();
+    setSeletectedMsgId([]);
   };
 
   // Delete socket
-  const HandleDeleteMsg = (_id) => {
+  const HandleDeleteMsg = () => {
     socket.emit("deleteMessage", {
-      messageId: _id,
+      messageId: SeletectedMsgId,
     });
     fetchMessages();
     HandleCloseDeleteModal();
   };
-  const [image, setimage] = useState(null);
-  const handleImageSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setimage(file);
-    }
-  };
-  const handleUpload = async () => {
-    const formdata = new FormData();
-    formdata.append("image", image);
-    formdata.append("_id", myId);
-    try {
-      const res = await axios.post("http://localhost:1111/uploads", formdata, {
-        headers: {
-          "Content-Type": "multipart/formdata",
-        },
-      });
-    } catch (error) {}
-  };
+  // const [image, setimage] = useState(null);
+  // const handleImageSelect = (e) => {
+  //   const file = e.target.files[0];
+  //   if (file) {
+  //     setimage(file);
+  //   }
+  // };
+  // const handleUpload = async () => {
+  //   const formdata = new FormData();
+  //   formdata.append("image", image);
+  //   formdata.append("_id", myId);
+  //   try {
+  //     const res = await axios.post("http://localhost:1111/uploads", formdata, {
+  //       headers: {
+  //         "Content-Type": "multipart/formdata",
+  //       },
+  //     });
+  //   } catch (error) {}
+  // };
 
   const [Profile, setProfile] = useState([]);
 
@@ -454,6 +467,64 @@ const ChatBoard = () => {
   useEffect(() => {
     FetchImage();
   }, []);
+
+  // GroupChat Menu
+  const [anchorEl, setAnchorEl] = useState(null);
+  const open2 = Boolean(anchorEl);
+
+  const handleClose2 = () => {
+    setAnchorEl(null);
+  };
+
+  const handleClick = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  // edit and delet menu
+  const [anchorE3, setAnchorE3] = useState(null);
+  const open3 = Boolean(anchorE3);
+
+  const handleClose3 = () => {
+    setAnchorE3(null);
+  };
+
+  const handleClick3 = (event) => {
+    setAnchorE3(event.currentTarget);
+  };
+
+  // View Participants
+  const [anchorE4, setAnchorE4] = useState(null);
+  const open4 = Boolean(anchorE4);
+
+  const handleClose4 = () => {
+    setAnchorE4(null);
+  };
+
+  const handleClick4 = (event) => {
+    setAnchorE4(event.currentTarget);
+  };
+
+  // Add Group Participants
+  const [OpenParticipantsModal, setOpenParticipantsModal] = useState(false);
+  const [ViewMembers, setViewMembers] = useState([]);
+  const HandleAddPersons = () => {
+    setOpenParticipantsModal(true);
+  };
+  const handleParticipantsModalClose = () => {
+    setOpenParticipantsModal(false);
+  };
+
+  const ViewParticipants = async (convId) => {
+    const result = await axios.get(
+      `http://localhost:1111/chats/getviewparticipants/${convId}`,
+    );
+    setViewMembers(result.data.result.participants);
+  };
+
+  useEffect(() => {
+    ViewParticipants(selectedConvId);
+  }, [selectedConvId]);
+
   return (
     <>
       {/* modals */}
@@ -471,6 +542,145 @@ const ChatBoard = () => {
       >
         <MenuItem onClick={HandleMenuItem}>New Group</MenuItem>
       </Menu>
+
+      <Menu
+        id="basic-menu"
+        anchorE4={anchorE4}
+        open={open4}
+        onClose={handleClose4}
+        slotProps={{
+          list: {
+            "aria-labelledby": "basic-button",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          
+          <Typography
+            sx={{ bgcolor: "#075E54", px: 7, py: 1.5, color: "white" }}
+          >
+            Members {ViewMembers.length}
+          </Typography>
+          {ViewMembers.map((e) => (
+            <>
+              <MenuItem sx={{ px: 5  , py:2}}>{e.name}</MenuItem>
+            </>
+          ))}
+        </Box>
+      </Menu>
+
+      <Modal
+        open={OpenParticipantsModal}
+        onClose={handleParticipantsModalClose}
+        sx={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 400,
+          bgcolor: "AppWorkspace",
+          boxShadow: 24,
+          height: "450px",
+        }}
+      >
+        <>
+          <Box
+            sx={{
+              bgcolor: "#075E54",
+              p: 1,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "25px",
+            }}
+          >
+            <Typography sx={{ color: "white", fontSize: "20px" }}>
+              Add Participants{" "}
+            </Typography>
+            <GroupAddIcon sx={{ color: "white" }} />
+          </Box>
+
+          <Box
+            sx={{
+              p: 2,
+              overflowY: "scroll",
+              height: "350px",
+              "&::-webkit-scrollbar": {
+                width: "4px",
+              },
+              "&::-webkit-scrollbar-track": {
+                background: "transparent",
+              },
+              "&::-webkit-scrollbar-thumb": {
+                background: "#888",
+                borderRadius: "3px",
+              },
+            }}
+          >
+            {User.map((e) => (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  p: 0.8,
+                  color: "white",
+                }}
+              >
+                <Typography>{e.email}</Typography>
+                <IconButton onClick={() => HandleUserGroup(e._id)}>
+                  <AddIcon />
+                </IconButton>
+              </Box>
+            ))}
+          </Box>
+
+          <Box
+            sx={{
+              bgcolor: "#075E54",
+              p: 1.2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: "10px",
+              borderEndEndRadius: "10px",
+              borderEndStartRadius: "10px",
+            }}
+          >
+            <Button
+              size="small"
+              variant="contained"
+              sx={{
+                bgcolor: "#d52626",
+                color: "white",
+                fontWeight: 600,
+              }}
+              onClick={handleParticipantsModalClose}
+            >
+              CANCEL
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              sx={{
+                bgcolor: "#12ad4b",
+                color: "white",
+                fontWeight: 600,
+              }}
+            >
+              CREATE
+            </Button>
+          </Box>
+        </>
+      </Modal>
+
       <Modal
         open={open}
         onClose={HandleClose}
@@ -657,8 +867,8 @@ const ChatBoard = () => {
                 }}
               >
                 <Typography sx={{ fontWeight: 700 }}>ExpressFlyChat</Typography>
-                <IconButton>
-                  <MoreVertIcon sx={{ color: "white" }} onClick={handleClick} />
+                <IconButton onClick={handleClick}>
+                  <MoreVertIcon sx={{ color: "white" }} />
                 </IconButton>
               </Box>
 
@@ -765,32 +975,78 @@ const ChatBoard = () => {
                 }}
               >
                 <AccountCircleIcon fontSize="large" />
-                <Typography variant="h6">
+                <Typography
+                  variant="h6"
+                  sx={{ cursor: "pointer" }}
+                  onClick={handleClick4}
+                >
                   {selectedName || "Select a chat"}
                 </Typography>
 
                 <Typography>{AdminName}</Typography>
               </Box>
-              <Box sx={{ display: "flex", gap: "20px" }}>
-                {Msgediticon ? (
-                  <>
-                    <IconButton>
-                      <EditIcon sx={{ color: "white" }} onClick={EditMOdal} />
-                    </IconButton>
-                    <IconButton>
-                      <DeleteForeverIcon
-                        sx={{ color: "white" }}
-                        onClick={handleDeleteModal}
-                      />
-                    </IconButton>
-                  </>
-                ) : (
-                  ""
+
+              <Box>
+                {Msgediticon && (
+                  <IconButton onClick={handleClick3}>
+                    <MoreVertIcon sx={{ color: "white" }} />
+                  </IconButton>
                 )}
 
-                <IconButton>
-                  <MoreVertIcon sx={{ color: "white" }} />
-                </IconButton>
+                {Admin_id === myId && (
+                  <IconButton onClick={HandleAddPersons}>
+                    <PersonAddIcon sx={{ color: "white" }} />
+                  </IconButton>
+                )}
+
+                <Menu
+                  id="basic-menu"
+                  anchorE3={anchorE3}
+                  open={open3}
+                  onClose={handleClose3}
+                  slotProps={{
+                    list: {
+                      "aria-labelledby": "basic-button",
+                    },
+                  }}
+                  style={{
+                    top: "180px",
+                    left: -30,
+                  }}
+                  anchorOrigin={{
+                    vertical: "top",
+                    horizontal: "right",
+                  }}
+                >
+                  <>
+                    <MenuItem onClick={EditMOdal}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "20px",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography>EditChat</Typography>
+                        <EditIcon />
+                      </Box>
+                    </MenuItem>
+                    <MenuItem onClick={handleDeleteModal}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "20px",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography>DeleteChat</Typography>
+                        <DeleteForeverIcon />
+                      </Box>
+                    </MenuItem>
+                  </>
+                </Menu>
               </Box>
             </Box>
 
@@ -824,7 +1080,7 @@ const ChatBoard = () => {
               )}
 
               {messages.map((msg) => {
-                const isMe = msg.SenderId._id === myId;
+                const isMe = msg.SenderId === myId;
                 return (
                   <Box
                     key={msg._id}
@@ -839,7 +1095,6 @@ const ChatBoard = () => {
                       open={DeleteModal}
                       onClose={HandleCloseDeleteModal}
                       sx={{
-                        bgcolor: "transparent",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -879,7 +1134,7 @@ const ChatBoard = () => {
                           <Button
                             variant="contained"
                             sx={{ bgcolor: "green", borderRadius: "8px" }}
-                            onClick={() => HandleDeleteMsg(msg._id)}
+                            onClick={HandleDeleteMsg}
                           >
                             Confirm
                           </Button>
@@ -901,11 +1156,12 @@ const ChatBoard = () => {
                         wordBreak: "break-word",
                       }}
                     >
-                      {msg.conversationId.type === "group" ? (
-                        <Box sx={{ fontSize: "12px" }}>{msg.SenderId.name}</Box>
+                      {/* {msg.conversationId.type === "group" &&
+                      msg.SenderId == myId ? (
+                        <Box sx={{ fontSize: "12px" }}>You</Box>
                       ) : (
-                        ""
-                      )}
+                        <Box sx={{ fontSize: "12px" }}>{msg.SenderId.name}</Box>
+                      )} */}
 
                       <Box
                         sx={{
@@ -914,7 +1170,6 @@ const ChatBoard = () => {
                           alignItems: "center",
                           gap: "20px",
                         }}
-                        onClick={() => OpenEditModal(msg.SenderId._id)}
                       >
                         {/* Start Modal */}
                         <Modal
@@ -950,9 +1205,7 @@ const ChatBoard = () => {
                             <IconButton>
                               <CheckCircleIcon
                                 sx={{ color: "white" }}
-                                onClick={() =>
-                                  HandleEdit(msg._id, msg.SenderId._id)
-                                }
+                                onClick={() => HandleEdit(msg.SenderId)}
                               />
                             </IconButton>
                           </Box>
@@ -961,7 +1214,19 @@ const ChatBoard = () => {
 
                         {/* Deleted Msg */}
                         {!msg.isDeleted ? (
-                          <Typography variant="body1">{msg.message}</Typography>
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              bgcolor:
+                                msg._id === SeletectedMsgId &&
+                                msg.SenderId === myId
+                                  ? "#7876767d"
+                                  : "",
+                            }}
+                            onClick={() => OpenEditModal(msg.SenderId, msg._id)}
+                          >
+                            {msg.message}
+                          </Typography>
                         ) : (
                           <Box
                             sx={{
@@ -1020,49 +1285,52 @@ const ChatBoard = () => {
 
               <div ref={messagesEndRef} />
             </Box>
-
-            <Box
-              sx={{
-                p: 1.5,
-                bgcolor: "white",
-                borderTop: "1px solid #ddd",
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                borderRadius: "0 0 10px 10px",
-              }}
-            >
-              <TextField
-                value={text}
-                onChange={handleTyping}
-                placeholder="Type a message..."
-                variant="outlined"
-                size="small"
-                fullWidth
-                multiline
-                maxRows={4}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
+            {selectedName ? (
+              <Box
                 sx={{
-                  "& .MuiOutlinedInput-root": {
-                    borderRadius: "20px",
-                    bgcolor: "white",
-                  },
+                  p: 1.5,
+                  bgcolor: "white",
+                  borderTop: "1px solid #ddd",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  borderRadius: "0 0 10px 10px",
                 }}
-              />
-
-              <IconButton
-                color="primary"
-                onClick={handleSend}
-                disabled={!text.trim()}
               >
-                <SendIcon />
-              </IconButton>
-            </Box>
+                <TextField
+                  value={text}
+                  onChange={handleTyping}
+                  placeholder="Type a message..."
+                  variant="outlined"
+                  size="small"
+                  fullWidth
+                  multiline
+                  maxRows={4}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: "20px",
+                      bgcolor: "white",
+                    },
+                  }}
+                />
+
+                <IconButton
+                  color="primary"
+                  onClick={handleSend}
+                  disabled={!text.trim()}
+                >
+                  <SendIcon />
+                </IconButton>
+              </Box>
+            ) : (
+              ""
+            )}
           </Box>
         </Box>
       </Box>

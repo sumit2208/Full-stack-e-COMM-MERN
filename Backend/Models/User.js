@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     kycStatus: { type: String, default: "Pending" },
     role: { type: String, default: "CUSTOMER" },
+    Image: { type: Schema.Types.ObjectId, ref: "Image" },
   },
   { timestamps: true },
 );

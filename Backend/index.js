@@ -21,6 +21,7 @@ import multer from "multer";
 import path from "path";
 import mongoose, { Schema } from "mongoose";
 import { fileURLToPath } from "url";
+import { Image } from "./Models/Image.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -196,7 +197,7 @@ io.on("connection", (socket) => {
   // Edit chat
 
   socket.on("EditChat", async (data) => {
-    const { msg, msg_id, SenderId, userId } = data;
+    const { msg, msg_id, SenderId, userId, conId } = data;
 
     if (SenderId !== userId) {
     }
@@ -205,8 +206,27 @@ io.on("connection", (socket) => {
         { _id: msg_id },
         { message: msg, isEdited: true },
       );
+      socket.to(conId).emit("MessageEdit", { NewText: msg, messageid: msg_id });
     } catch (error) {
       console.error("Error:", error);
+    }
+  });
+
+  //delete
+
+  socket.on("deleteMessage", async ({ messageId }) => {
+    try {
+      const msg = await Message.findOne({ _id: messageId }); 
+
+      if (!msg) {
+        return socket.emit("error", { msg: "Not found or not yours" });
+      }
+      await Message.updateOne({ _id: messageId }, { isDeleted: true }); 
+      socket.to(msg.conversationId.toString()).emit("messageDeleted", {
+        MesId: messageId,
+      });
+    } catch (err) {
+      console.error("deleteMessage error:", err);
     }
   });
 
@@ -278,7 +298,7 @@ io.on("connection", (socket) => {
         }
       }
 
-      io.to(conversationId).emit("messagereceived", payload);
+      socket.to(conversationId).emit("messagereceived", payload);
     } catch (error) {
       console.error("Send Message Error:", error);
     }
@@ -362,50 +382,10 @@ io.on("connection", (socket) => {
       console.error("markMessagesRead error:", err);
     }
   });
-
-  //delete
-  socket.on(
-    "deleteMessage",
-    async ({ messageId, deleteForEveryone = true }) => {
-      console.log(messageId);
-      try {
-        const msg = await Message.findOne({
-          _id: messageId,
-        });
-
-        if (!msg)
-          return socket.emit("error", { msg: "Not found or not yours" });
-
-        if (deleteForEveryone) {
-          await Message.updateOne({ _id: messageId }, { isDeleted: true });
-          io.to(`conversation:${msg.conversationId}`).emit("messageDeleted", {
-            messageId,
-            deletedBy: socket.user.id,
-            deleteForEveryone: true,
-          });
-        } else {
-          socket.emit("messageDeleted", {
-            messageId,
-            deleteForEveryone: false,
-          });
-        }
-      } catch (err) {
-        console.error("deleteMessage error:", err);
-      }
-    },
-  );
 });
 
-const ImageSchema = new mongoose.Schema({
-  name: String,
-  path: String,
-  UserId: {
-    type: Schema.Types.ObjectId,
-    ref: "User",
-  },
-});
+// Image Upload Function
 
-const Image = mongoose.model("Image", ImageSchema, "Image");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -443,4 +423,6 @@ app.get("/getprofileimage/:_id", async (req, res) => {
     res.status(500).json({ success: false, message: "error.message" });
   }
 });
+// End Image Upload Function
+
 server.listen(PORT);
