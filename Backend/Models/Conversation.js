@@ -22,10 +22,12 @@ const ConversationSchema = new mongoose.Schema({
       required: true,
     },
   ],
-  Admin : {
-    type : Schema.Types.ObjectId,
-    ref : 'User'
-  },
+  Admin: [
+    {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+  ],
   logo: {
     type: String,
     default: null,
@@ -42,5 +44,9 @@ const ConversationSchema = new mongoose.Schema({
   },
 });
 
-const Conversation = mongoose.model("Conversation", ConversationSchema,'Conversation');
+const Conversation = mongoose.model(
+  "Conversation",
+  ConversationSchema,
+  "Conversation",
+);
 export default Conversation;

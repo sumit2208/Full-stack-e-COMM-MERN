@@ -141,10 +141,15 @@ export const getViewParticipants = async (req, res) => {
   const { convId } = req.params;
 
   try {
-    const result = await Conversation.findOne({ _id: convId }).populate({
-      path: "participants",
-      select: "name email",
-    });
+    const result = await Conversation.findOne({ _id: convId })
+      .populate({
+        path: "participants",
+        select: "name email",
+      })
+      .populate({
+        path: "Admin",
+        select: "_id name",
+      });
     if (result) {
       res.status(200).json({
         result,
@@ -166,10 +171,11 @@ export const getViewParticipants = async (req, res) => {
 
 export const AddParticipants = async (req, res) => {
   const { convId } = req.params;
+  const addtogroup = req.body.UserId;
   try {
-    const result = Conversation.findByIdAndUpdate(
+    const result = await Conversation.findByIdAndUpdate(
       { _id: convId },
-      { $push: { participants: req.body.userId } },
+      { $push: { participants: { $each: addtogroup } } },
       { new: true },
     );
 
@@ -180,7 +186,7 @@ export const AddParticipants = async (req, res) => {
         message: "User Add to Conversation",
       });
     } else {
-      res.status(400).josn({
+      res.status(400).json({
         success: false,
         message: "Not Fetch",
       });
@@ -192,3 +198,118 @@ export const AddParticipants = async (req, res) => {
     });
   }
 };
+
+export const MakeAdmin = async (req, res) => {
+  const { convId } = req.params;
+  const MakeAdminId = req.body._id;
+  try {
+    const result = await Conversation.findByIdAndUpdate(
+      { _id: convId },
+      { $push: { Admin: MakeAdminId } },
+      { new: true },
+    );
+    if (result) {
+      res.status(200).json({
+        result,
+        success: true,
+        message: `${MakeAdmin} is Now Admin`,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: "Making Admin Process is failed",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+export const PullAdmin = async (req, res) => {
+  const { convId } = req.params;
+  const KickAdminId = req.body._id;
+  try {
+    const result = await Conversation.updateOne(
+      { _id: convId },
+      { $pull: { Admin: KickAdminId } },
+    );
+    if (result) {
+      res.status(200).json({
+        result,
+        success: true,
+        message: "Admin Kicked",
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: "Admin NOt Kicked",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+export const Kickmembers = async (req, res) => {
+  const { convId } = req.params;
+  const KickGroupMember = req.body._id;
+  try {
+    const result = await Conversation.updateOne(
+      { _id: convId },
+      { $pull: { participants: KickGroupMember } },
+    );
+    if (result) {
+      res.status(200).json({
+        result,
+        success: true,
+        message: "KickMembrs from Group Successfully",
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: "Member Not Kicked",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+
+export const ChangeGroupName = async(req,res)=>{
+  const {convId} = req.params
+  const NewGroupName = req.body.NewName.toString()
+  try {
+    const result = await Conversation.findByIdAndUpdate(
+      {_id:convId},
+      {name:NewGroupName}
+    );
+    if(result){
+      res.status(200).json({
+        result,
+        success:true,
+        message:"GroupName Change SuccessFully"
+      })
+    }else{
+      res.status(400).josn({
+        result,
+        success:false,
+        message:'Error While Changing GroupName'
+      })
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+}
