@@ -5,6 +5,7 @@ const ConversationSchema = new mongoose.Schema({
     {
       user: { type: Schema.Types.ObjectId, ref: "User" },
       count: { type: Number, default: 0 },
+      lastReadAt: { type: Date },
     },
   ],
   name: {
@@ -35,12 +36,10 @@ const ConversationSchema = new mongoose.Schema({
   lastMessage: {
     type: Schema.Types.ObjectId,
     ref: "Message",
-    default: null,
   },
 
   lastMessageAt: {
     type: Date,
-    default: null,
   },
 });
 

@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Router } from "express";
 import connectDB from "./db.js";
 import cors from "cors";
 import userRouter from "./routes/userRoutes.js";
@@ -32,6 +32,7 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -216,12 +217,12 @@ io.on("connection", (socket) => {
 
   socket.on("deleteMessage", async ({ messageId }) => {
     try {
-      const msg = await Message.findOne({ _id: messageId }); 
+      const msg = await Message.findOne({ _id: messageId });
 
       if (!msg) {
         return socket.emit("error", { msg: "Not found or not yours" });
       }
-      await Message.updateOne({ _id: messageId }, { isDeleted: true }); 
+      await Message.updateOne({ _id: messageId }, { isDeleted: true });
       socket.to(msg.conversationId.toString()).emit("messageDeleted", {
         MesId: messageId,
       });
@@ -324,59 +325,37 @@ io.on("connection", (socket) => {
   });
 
   // MessageReadMark
+
   socket.on("markMessagesRead", async ({ conversationId }) => {
     if (!conversationId) return;
 
     try {
+      const now = new Date();
       const conversation = await Conversation.findById(conversationId);
 
       if (!conversation) return;
 
-      const userUnreadIndex = conversation.unreadCounts.findIndex(
-        (entry) => entry.user.toString() === socket.user.id,
+      let userEntry = conversation.unreadCounts.find(
+        (e) => e.user.toString() === socket.user.id,
       );
 
-      if (userUnreadIndex >= 0) {
-        conversation.unreadCounts[userUnreadIndex].count = 0;
-
-        io.to(socket.user.id).emit("unreadCountUpdated", {
-          conversationId,
+      if (userEntry) {
+        userEntry.count = 0;
+        userEntry.lastReadAt = now;
+      } else {
+        conversation.unreadCounts.push({
+          user: socket.user.id,
           count: 0,
-          userId: socket.user.id,
+          lastReadAt: now,
         });
-
-        await conversation.save();
       }
 
-      const unreadMessages = await Message.find({
+      await conversation.save();
+
+      io.to(socket.user.id).emit("unreadCountUpdated", {
         conversationId,
-        SenderId: { $ne: socket.user.id },
-        "Read_User.user": { $ne: socket.user.id },
-      }).select("_id SenderId");
-
-      if (unreadMessages.length === 0) return;
-
-      await Message.updateMany(
-        {
-          _id: { $in: unreadMessages.map((m) => m._id) },
-          "Read_User.user": { $ne: socket.user.id },
-        },
-        {
-          $push: {
-            Read_User: {
-              user: socket.user.id,
-              readAt: new Date(),
-            },
-          },
-        },
-      );
-
-      const readMessageIds = unreadMessages.map((m) => m._id.toString());
-
-      socket.to(conversationId).emit("messagesRead", {
-        conversationId,
-        readerId: socket.user.id,
-        messageIds: readMessageIds,
+        count: 0,
+        userId: socket.user.id,
       });
     } catch (err) {
       console.error("markMessagesRead error:", err);
@@ -385,7 +364,6 @@ io.on("connection", (socket) => {
 });
 
 // Image Upload Function
-
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -423,6 +401,158 @@ app.get("/getprofileimage/:_id", async (req, res) => {
     res.status(500).json({ success: false, message: "error.message" });
   }
 });
+
 // End Image Upload Function
+
+app.get("/getlastread/:myId/:selectedConvId", async (req, res) => {
+  try {
+    const { myId, selectedConvId } = req.params;
+
+    const conversation = await Conversation.findById(selectedConvId)
+      .select("unreadCounts")
+      .lean();
+
+    if (!conversation) {
+      return res.json({
+        lastReadTimestamp: null,
+        lastReadMessageId: null,
+      });
+    }
+
+    const userUnreadEntry = conversation.unreadCounts?.find(
+      (entry) => entry.user.toString() === myId,
+    );
+
+    const lastReadAt = userUnreadEntry?.lastReadAt;
+
+    if (!lastReadAt) {
+      return res.json({
+        lastReadTimestamp: null,
+        lastReadMessageId: null,
+      });
+    }
+
+    const lastReadMessage = await Message.findOne({
+      conversationId: new mongoose.Types.ObjectId(selectedConvId),
+      createdAt: { $lte: lastReadAt },
+    })
+      .sort({ createdAt: -1 })
+      .select("createdAt _id")
+      .lean();
+
+    if (lastReadMessage) {
+      return res.json({
+        lastReadTimestamp: lastReadAt.toISOString(),
+        lastReadMessageId: lastReadMessage._id.toString(),
+      });
+    }
+
+    return res.json({
+      lastReadTimestamp: lastReadAt.toISOString(),
+      lastReadMessageId: null,
+    });
+  } catch (error) {
+    console.error("Get last read error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/chats/add-user", async (req, res) => {
+  const { conversationId, userId } = req.body;
+
+  const conversation = await Conversation.findById(conversationId);
+  conversation.participants.push(userId);
+  await conversation.save();
+
+  io.to(conversationId).emit("group-update", {
+    type: "user-added",
+    conversationId,
+    userId,
+    timestamp: new Date(),
+  });
+
+  res.json({ message: "User added" });
+});
+
+app.patch("/chats/remove-user", async (req, res) => {
+  const { conversationId, userId } = req.body;
+
+  const conversation = await Conversation.findById(conversationId);
+  conversation.participants.pull(userId);
+  await conversation.save();
+
+  io.to(conversationId).emit("group-update", {
+    type: "user-remove",
+    conversationId,
+    userId,
+    timestamp: new Date(),
+  });
+
+  res.json({ message: "User Remove" });
+});
+
+app.get("/chats/getmessage/:convId/msg", async (req, res) => {
+  const { convId } = req.params;
+  const { page = 1, limit = 20, since } = req.query;
+
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+
+  try {
+    const query = {
+      conversationId: new mongoose.Types.ObjectId(convId),
+    };
+
+    let sort = { createdAt: -1 };  
+ 
+    if (since) {
+      let sinceDate = null;
+ 
+      if (mongoose.isValidObjectId(since)) {
+        const anchor = await Message.findById(since).select("createdAt").lean();
+        if (anchor) {
+          sinceDate = anchor.createdAt;
+          console.log(`since=messageId → using createdAt: ${sinceDate.toISOString()}`);
+        }
+      } 
+      else {
+        sinceDate = new Date(since);
+        if (!isNaN(sinceDate.getTime())) {
+          console.log(`since=timestamp → using: ${sinceDate.toISOString()}`);
+        } else {
+          console.warn(`Invalid since format: ${since}`);
+        }
+      }
+
+      if (sinceDate) {
+        query.createdAt = { $gt: sinceDate };
+      }
+    }
+ 
+    const messages = await Message.find(query)
+      .sort(sort)
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum)
+      .lean();
+ 
+    const messagesForClient = messages.reverse();
+
+    const hasMore = messages.length === limitNum;
+ 
+    const total = await Message.countDocuments({ conversationId: new mongoose.Types.ObjectId(convId) });
+
+    console.log(`getmessage → conv:${convId} | page:${pageNum} | limit:${limitNum} | since:${since || 'none'} | returned:${messagesForClient.length} msgs`);
+
+    res.json({
+      messages: messagesForClient,
+      hasMore,
+      total,
+      page: pageNum,
+    });
+  } catch (err) {
+    console.error("getmessage error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
+  }
+});
 
 server.listen(PORT);

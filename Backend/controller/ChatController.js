@@ -84,58 +84,7 @@ export const getUserConversations = async (req, res) => {
   }
 };
 
-export const getMessages = async (req, res) => {
-  try {
-    const { con_id } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
 
-    if (!mongoose.isValidObjectId(con_id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid conversation ID",
-      });
-    }
-
-    const skip = (page - 1) * limit;
-
-    const totalMessages = await Message.countDocuments({
-      conversationId: con_id,
-    });
-
-    const messages = await Message.find({ conversationId: con_id })
-      // .populate({
-      //   path: "SenderId",
-      //   select: "name _id",
-      // })
-      .populate({
-        path: "conversationId",
-        select: "type",
-      })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-    const reversedMessages = messages.reverse();
-
-    return res.status(200).json({
-      success: true,
-      messages: reversedMessages,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(totalMessages / limit),
-        totalMessages,
-        hasMore: skip + messages.length < totalMessages,
-      },
-    });
-  } catch (error) {
-    console.error("getMessages error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error while fetching messages",
-    });
-  }
-};
 
 export const getViewParticipants = async (req, res) => {
   const { convId } = req.params;
@@ -284,27 +233,26 @@ export const Kickmembers = async (req, res) => {
   }
 };
 
-
-export const ChangeGroupName = async(req,res)=>{
-  const {convId} = req.params
-  const NewGroupName = req.body.NewName.toString()
+export const ChangeGroupName = async (req, res) => {
+  const { convId } = req.params;
+  const NewGroupName = req.body.NewName.toString();
   try {
     const result = await Conversation.findByIdAndUpdate(
-      {_id:convId},
-      {name:NewGroupName}
+      { _id: convId },
+      { name: NewGroupName },
     );
-    if(result){
+    if (result) {
       res.status(200).json({
         result,
-        success:true,
-        message:"GroupName Change SuccessFully"
-      })
-    }else{
+        success: true,
+        message: "GroupName Change SuccessFully",
+      });
+    } else {
       res.status(400).josn({
         result,
-        success:false,
-        message:'Error While Changing GroupName'
-      })
+        success: false,
+        message: "Error While Changing GroupName",
+      });
     }
   } catch (error) {
     res.status(500).json({
@@ -312,4 +260,4 @@ export const ChangeGroupName = async(req,res)=>{
       message: "Server error",
     });
   }
-}
+};

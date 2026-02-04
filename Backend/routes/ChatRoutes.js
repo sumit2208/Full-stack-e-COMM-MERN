@@ -2,7 +2,7 @@ import express from "express";
 import {
   AddParticipants,
   ChangeGroupName,
-  getMessages,
+  // getMessages,
   getUserConversations,
   getViewParticipants,
   Kickmembers,
@@ -12,7 +12,7 @@ import {
 
 const router = express.Router();
 
-router.get("/chats/getmessage/:con_id/msg", getMessages);
+// router.get("/chats/getmessage/:con_id/msg", getMessages);
 router.get("/chats/getconversation/:CUserId", getUserConversations);
 router.get("/chats/getviewparticipants/:convId", getViewParticipants);
 router.post("/chats/addnewmembners/:convId", AddParticipants);

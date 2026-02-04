@@ -35,6 +35,7 @@ import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import ChangeCircleIcon from "@mui/icons-material/ChangeCircle";
 import PreviewIcon from "@mui/icons-material/Preview";
 import KeyboardDoubleArrowDownIcon from "@mui/icons-material/KeyboardDoubleArrowDown";
+import MarkChatUnreadIcon from "@mui/icons-material/MarkChatUnread";
 
 const ChatBoard = () => {
   const TYping = {
@@ -74,7 +75,6 @@ const ChatBoard = () => {
   const [Admin_id, setAdmin_id] = useState([]);
   const [selectedUserId, setselectedUserId] = useState([]);
   const [EditMsg, SetEditMsg] = useState("");
-  const [Msgediticon, setMsgediticon] = useState(false);
   const [editopen, seteditopen] = useState(false);
   const [Profile, setProfile] = useState([]);
   const [page, setPage] = useState(1);
@@ -86,16 +86,17 @@ const ChatBoard = () => {
     [],
   );
   const [ChangeGroupName, setChangeGroupName] = useState("");
-  const [editdeletemsg, seteditdeletemsg] = useState(false);
   const [Transforminput, setTransforminput] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState(null);
   const [messageMenuAnchor, setMessageMenuAnchor] = useState(null);
   const [selectedMessageForMenu, setSelectedMessageForMenu] = useState(null);
+  const [firstUnreadMessageId, setFirstUnreadMessageId] = useState(null);
 
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const firstUnreadRef = useRef(null);
 
   const MESSAGES_PER_PAGE = 10;
 
@@ -109,9 +110,20 @@ const ChatBoard = () => {
     }
   };
 
+  const scrollToFirstUnreadMessage = () => {
+    if (firstUnreadRef.current) {
+      setTimeout(() => {
+        firstUnreadRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        setFirstUnreadMessageId(null);
+      }, 100);
+    }
+  };
+
   const handleScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
-
     const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
     setShowScrollToBottom(!isNearBottom);
 
@@ -207,15 +219,42 @@ const ChatBoard = () => {
 
   const fetchMessages = async () => {
     try {
+      let lastReadTimestamp = null;
+
+      try {
+        const res = await axios.get(
+          `http://localhost:1111/getlastread/${myId}/${selectedConvId}`,
+        );
+        lastReadTimestamp = res?.data?.lastReadTimestamp;
+        
+      } catch (err) {
+        console.error("Failed to get last read timestamp:", err);
+      }
+
       const res = await axios.get(
         `http://localhost:1111/chats/getmessage/${selectedConvId}/msg?page=1&limit=${MESSAGES_PER_PAGE}`,
       );
       const fetchedMessages = res.data.messages || [];
+
       setMessages(fetchedMessages);
       setPage(1);
       setHasMore(fetchedMessages.length === MESSAGES_PER_PAGE);
 
-      setTimeout(() => scrollToBottom(true), 100);
+      // if (lastReadTimestamp && fetchedMessages.length > 0) { 
+      //   const lastReadDate = new Date(lastReadTimestamp);
+      //   const firstUnreadMsg = fetchedMessages.find((msg) => {
+      //     const msgDate = new Date(msg.createdAt);
+      //     return msgDate > lastReadDate && msg.SenderId !== myId;
+      //   });
+
+      //   if (firstUnreadMsg) {
+      //     setFirstUnreadMessageId(firstUnreadMsg._id);
+      //   } else {
+      //     setTimeout(() => scrollToBottom(true), 100);
+      //   }
+      // } else {
+      //   setTimeout(() => scrollToBottom(true), 100);
+      // }
     } catch (err) {
       console.error("Failed to load messages:", err);
     }
@@ -225,6 +264,7 @@ const ChatBoard = () => {
 
   useEffect(() => {
     AllUsers();
+    FetchImage();
   }, []);
 
   useEffect(() => {
@@ -234,6 +274,7 @@ const ChatBoard = () => {
     socket.on("startTyping", ({ userId, conversationId }) => {
       if (conversationId === selectedConvId && userId !== myId) {
         setIsTyping(true);
+        setTimeout(() => scrollToBottom(true), 100);
       }
     });
 
@@ -260,6 +301,8 @@ const ChatBoard = () => {
       }
     });
 
+   
+
     socket.on("messageDeleted", ({ MesId }) => {
       setMessages((prev) =>
         prev.map((msg) =>
@@ -280,6 +323,14 @@ const ChatBoard = () => {
   useEffect(() => {
     const handleNewMessage = (newMsg) => {
       if (newMsg.conversationId === selectedConvId) {
+        const container = messagesContainerRef.current;
+        const isNearBottom = container
+          ? container.scrollHeight -
+              container.scrollTop -
+              container.clientHeight <
+            100
+          : true;
+
         setMessages((prev) => {
           const alreadyExists = prev.some(
             (m) =>
@@ -293,6 +344,12 @@ const ChatBoard = () => {
         if (newMsg.SenderId !== myId) {
           socket.emit("markMessagesRead", { conversationId: selectedConvId });
         }
+
+        if (isNearBottom || newMsg.SenderId === myId) {
+          setTimeout(() => scrollToBottom(true), 100);
+        } else {
+          setShowScrollToBottom(true);
+        }
       }
     };
 
@@ -304,10 +361,32 @@ const ChatBoard = () => {
   }, [socket, selectedConvId, myId]);
 
   useEffect(() => {
+    if (isTyping) {
+      setTimeout(() => scrollToBottom(true), 100);
+    }
+  }, [isTyping]);
+
+  // useEffect(() => {
+  //   if (messages.length > 0 && !showScrollToBottom) {
+  //     setTimeout(() => scrollToBottom(true), 100);
+  //   }
+  // }, [messages.length]);
+
+  useEffect(() => {
+    if (firstUnreadMessageId && messages.length > 0) {
+      scrollToFirstUnreadMessage();
+    }
+  }, [firstUnreadMessageId, messages.length]);
+
+  useEffect(() => {
     if (!selectedConvId) return;
 
     socket.emit("join chat", selectedConvId);
-    fetchMessages();
+
+    const hasUnread = unreadCounts[selectedConvId] > 0;
+
+    fetchMessages(hasUnread);
+
     socket.emit("markMessagesRead", { conversationId: selectedConvId });
   }, [selectedConvId, socket]);
 
@@ -363,9 +442,11 @@ const ChatBoard = () => {
     setPage(1);
     setHasMore(true);
     setShowScrollToBottom(false);
+    setFirstUnreadMessageId(null);
 
     socket.emit("markMessagesRead", { conversationId: convId });
   };
+
   const handleSend = () => {
     if (!text.trim() || !selectedConvId) return;
 
@@ -387,7 +468,10 @@ const ChatBoard = () => {
       type: "text",
     });
 
-    setTimeout(() => scrollToBottom(true), 100);
+    setTimeout(() => {
+      scrollToBottom(true);
+      setShowScrollToBottom(false);
+    }, 100);
   };
 
   const handleTyping = (e) => {
@@ -421,7 +505,6 @@ const ChatBoard = () => {
   };
 
   const HandleCreateGroup = () => {
-    // Creation of Group chat emit
     socket.emit("GroupChat", {
       name: GroupName || "GroupChatDemo",
       participants: GroupUserSelect,
@@ -441,7 +524,6 @@ const ChatBoard = () => {
     if (senderid !== myId) {
       console.log("senderid and userid does not match", senderid, myId);
     } else {
-      setMsgediticon(true);
       socket.emit("EditChat", {
         msg_id: SeletectedMsgId,
         msg: EditMsg,
@@ -452,7 +534,7 @@ const ChatBoard = () => {
     }
 
     handleEditClose();
-    fetchMessages();
+    fetchMessages(false);
   };
 
   const EditMOdal = () => {
@@ -467,29 +549,21 @@ const ChatBoard = () => {
     SetEditMsg(e.target.value);
   };
 
-  const OpenEditModal = (senderid, msg_id) => {
-    setSeletectedMsgId(msg_id);
-    if (senderid === myId || Admin_id.includes(myId)) {
-    }
-  };
-
   const handleDeleteModal = () => {
     setDeleteModal(true);
   };
 
   const HandleCloseDeleteModal = () => {
     setDeleteModal(false);
-    setMsgediticon(false);
     handleClose3();
     setSeletectedMsgId([]);
   };
 
-  // Delete socket
   const HandleDeleteMsg = () => {
     socket.emit("deleteMessage", {
       messageId: SeletectedMsgId,
     });
-    fetchMessages();
+    fetchMessages(false);
     HandleCloseDeleteModal();
   };
 
@@ -500,11 +574,6 @@ const ChatBoard = () => {
     setProfile(res?.data?.result);
   };
 
-  useEffect(() => {
-    FetchImage();
-  }, []);
-
-  // GroupChat Menu
   const [anchorEl, setAnchorEl] = useState(null);
   const open2 = Boolean(anchorEl);
 
@@ -516,7 +585,6 @@ const ChatBoard = () => {
     setAnchorEl(event.currentTarget);
   };
 
-  // edit and delet menu
   const [anchorE3, setAnchorE3] = useState(null);
   const open3 = Boolean(anchorE3);
 
@@ -528,7 +596,6 @@ const ChatBoard = () => {
     setAnchorE3(event.currentTarget);
   };
 
-  // View Participants
   const [anchorE4, setAnchorE4] = useState(null);
   const open4 = Boolean(anchorE4);
 
@@ -539,8 +606,6 @@ const ChatBoard = () => {
   const handleClick4 = (event) => {
     setAnchorE4(event.currentTarget);
   };
-
-  // Add Group Participants
 
   const HandleAddPersons = () => {
     setOpenParticipantsModal(true);
@@ -604,8 +669,35 @@ const ChatBoard = () => {
     setTransforminput(false);
     setChangeGroupName("");
   };
+//   useEffect(() => {
+//   socket.on("group-update", (data) => {
+//     const { type, userId, timestamp } = data;
+
+//     const systemMsg = {
+//       _id: `system-${Date.now()}`,
+//       message: type === "user-added" 
+//         ? "User was added to the group" 
+//         : "User was removed from the group",
+//       isSystem: true,
+//       timestamp,
+//     };
+
+//     setMessages((prev) => [...prev, systemMsg]);
+//   });
+
+//   return () => socket.off("group-update");
+// }, []);   
 
   return (
+     
+
+
+//       {message.isSystem ? (
+//   <div className="system-msg">{message.message}</div>
+// ) : (
+//   <div className="user-msg">...</div>
+// )}   
+ 
     <>
       {/* modals */}
 
@@ -1392,215 +1484,247 @@ const ChatBoard = () => {
                 </Box>
               )}
 
-              {messages.map((msg) => {
+              {messages.map((msg, index) => {
                 const isMe = msg.SenderId === myId;
+                const isFirstUnread = msg._id === firstUnreadMessageId;
+
                 return (
-                  <Box
-                    key={msg._id}
-                    sx={{
-                      alignSelf: isMe ? "flex-end" : "flex-start",
-                      maxWidth: "70%",
-                      cursor: "pointer",
-                      position: "relative",
-                      "&:hover .message-actions": {
-                        opacity: 1,
-                      },
-                    }}
-                    onMouseEnter={(e) =>
-                      handleMessageMouseEnter(msg._id, msg, e)
-                    }
-                    onMouseLeave={handleMessageMouseLeave}
-                  >
-                    {/* Start Modal */}
-                    <Modal
-                      open={DeleteModal}
-                      onClose={HandleCloseDeleteModal}
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
+                  <React.Fragment key={msg._id}>
+                    {isFirstUnread && (
                       <Box
+                        ref={firstUnreadRef}
                         sx={{
-                          bgcolor: "#075E54",
-                          height: "150px",
-                          width: "250px",
                           display: "flex",
-                          flexDirection: "column",
                           alignItems: "center",
                           justifyContent: "center",
-                          gap: "20px",
-                          borderRadius: "15px",
+                          my: 2,
+                          py: 1,
+                          px: 3,
+                          borderRadius: "20px",
+                          backgroundColor: "#075E54",
+                          color: "white",
+                          alignSelf: "center",
+                          maxWidth: "80%",
                         }}
                       >
-                        <Typography sx={{ color: "white" }}>
-                          Are You Sure!
+                        <MarkChatUnreadIcon sx={{ mr: 1, fontSize: "16px" }} />
+                        <Typography variant="caption" sx={{ fontWeight: 500 }}>
+                          Unread Messages
                         </Typography>
+                      </Box>
+                    )}
+
+                    <Box
+                      data-message-id={msg._id}
+                      sx={{
+                        alignSelf: isMe ? "flex-end" : "flex-start",
+                        maxWidth: "70%",
+                        cursor: "pointer",
+                        position: "relative",
+                        "&:hover .message-actions": {
+                          opacity: 1,
+                        },
+                      }}
+                      onMouseEnter={(e) =>
+                        handleMessageMouseEnter(msg._id, msg, e)
+                      }
+                      onMouseLeave={handleMessageMouseLeave}
+                    >
+                      <Modal
+                        open={DeleteModal}
+                        onClose={HandleCloseDeleteModal}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            bgcolor: "#075E54",
+                            height: "150px",
+                            width: "250px",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "20px",
+                            borderRadius: "15px",
+                          }}
+                        >
+                          <Typography sx={{ color: "white" }}>
+                            Are You Sure!
+                          </Typography>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: "15px",
+                            }}
+                          >
+                            <Button
+                              variant="contained"
+                              sx={{ bgcolor: "red", borderRadius: "8px" }}
+                              onClick={HandleCloseDeleteModal}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="contained"
+                              sx={{ bgcolor: "green", borderRadius: "8px" }}
+                              onClick={HandleDeleteMsg}
+                            >
+                              Confirm
+                            </Button>
+                          </Box>
+                        </Box>
+                      </Modal>
+
+                      <Box
+                        sx={{
+                          p: 1.5,
+                          borderRadius: 2,
+                          display: "flex",
+                          gap: "5px",
+                          flexDirection: "column",
+                          bgcolor: isMe ? "#26c964d4" : "white",
+                          color: isMe ? "white" : "text.primary",
+                          boxShadow: 1,
+                          wordBreak: "break-word",
+                          borderLeft:
+                            isFirstUnread && !isMe
+                              ? "3px solid #25D366"
+                              : "none",
+                        }}
+                        onDoubleClick={() => setSeletectedMsgId([])}
+                      >
+                        {hoveredMessageId === msg._id &&
+                          canEditDeleteMessage(msg) &&
+                          !msg.isDeleted && (
+                            <IconButton
+                              size="small"
+                              className="message-actions"
+                              onClick={handleMessageMenuClick}
+                              sx={{
+                                position: "absolute",
+                                top: 0,
+                                right: 0,
+                                opacity: 0,
+                                transition: "opacity 0.2s",
+                                bgcolor: "rgba(255, 255, 255, 0.8)",
+                                "&:hover": {
+                                  bgcolor: "rgba(255, 255, 255, 1)",
+                                },
+                              }}
+                            >
+                              <MoreVertIcon fontSize="small" />
+                            </IconButton>
+                          )}
+
                         <Box
                           sx={{
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
-                            gap: "15px",
+                            gap: "20px",
                           }}
                         >
-                          <Button
-                            variant="contained"
-                            sx={{ bgcolor: "red", borderRadius: "8px" }}
-                            onClick={HandleCloseDeleteModal}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            variant="contained"
-                            sx={{ bgcolor: "green", borderRadius: "8px" }}
-                            onClick={HandleDeleteMsg}
-                          >
-                            Confirm
-                          </Button>
-                        </Box>
-                      </Box>
-                    </Modal>
-                    {/* End Modal */}
-
-                    <Box
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 2,
-                        display: "flex",
-                        gap: "5px",
-                        flexDirection: "column",
-                        bgcolor: isMe ? "#26c964d4" : "white",
-                        color: isMe ? "white" : "text.primary",
-                        boxShadow: 1,
-                        wordBreak: "break-word",
-                      }}
-                      onDoubleClick={() => setSeletectedMsgId([])}
-                    >
-                      {hoveredMessageId === msg._id &&
-                        canEditDeleteMessage(msg) && (
-                          <IconButton
-                            size="small"
-                            className="message-actions"
-                            onClick={handleMessageMenuClick}
-                            sx={{
-                              position: "absolute",
-                              top: 0,
-                              right: 0,
-                              opacity: 0,
-                              transition: "opacity 0.2s",
-                              bgcolor: "rgba(255, 255, 255, 0.8)",
-                              "&:hover": {
-                                bgcolor: "rgba(255, 255, 255, 1)",
-                              },
-                            }}
-                          >
-                            <MoreVertIcon fontSize="small" />
-                          </IconButton>
-                        )}
-
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: "20px",
-                        }}
-                      >
-                        {/* Start Modal */}
-                        <Modal
-                          open={editopen}
-                          onClose={handleEditClose}
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            bgcolor: "transparent",
-                          }}
-                        >
-                          <Box
+                          <Modal
+                            open={editopen}
+                            onClose={handleEditClose}
                             sx={{
                               display: "flex",
                               alignItems: "center",
-                              bgcolor: "#272626ae",
-                              p: 2,
-                              borderRadius: "8px",
+                              justifyContent: "center",
+                              bgcolor: "transparent",
                             }}
                           >
-                            <Input
-                              placeholder="Edit msg"
+                            <Box
                               sx={{
-                                width: "300px",
-                                bgcolor: "white",
-                                borderRadius: "10px",
-                                p: 1,
-                              }}
-                              value={EditMsg}
-                              onChange={EditMsgValue}
-                            />
-                            <IconButton>
-                              <CheckCircleIcon
-                                sx={{ color: "white" }}
-                                onClick={() => HandleEdit(msg.SenderId)}
-                              />
-                            </IconButton>
-                          </Box>
-                        </Modal>
-                        {/* End Modal */}
-
-                        {/* Deleted Msg */}
-                        {!msg.isDeleted ? (
-                          <Typography variant="body1">{msg.message}</Typography>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "5px",
-                            }}
-                          >
-                            <DoNotDisturbIcon sx={{ color: "#272626ae" }} />{" "}
-                            <Typography
-                              sx={{
-                                color: "#272626ae",
-                                fontSize: "14px",
-                                fontStyle: "italic",
+                                display: "flex",
+                                alignItems: "center",
+                                bgcolor: "#272626ae",
+                                p: 2,
+                                borderRadius: "8px",
                               }}
                             >
-                              This Messgae has been deleted
-                            </Typography>
-                          </Box>
-                        )}
-                        {/* Deleted Msg End*/}
+                              <Input
+                                placeholder="Edit msg"
+                                sx={{
+                                  width: "300px",
+                                  bgcolor: "white",
+                                  borderRadius: "10px",
+                                  p: 1,
+                                }}
+                                value={EditMsg}
+                                onChange={EditMsgValue}
+                              />
+                              <IconButton>
+                                <CheckCircleIcon
+                                  sx={{ color: "white" }}
+                                  onClick={() => HandleEdit(msg.SenderId)}
+                                />
+                              </IconButton>
+                            </Box>
+                          </Modal>
 
-                        <Typography
-                          sx={{ fontSize: "10px", color: "#272626ae" }}
-                        >
-                          {msg.isEdited ? "Edited" : ""}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: "10px",
-                            marginBottom: 0,
-                            color: "#272626ae",
-                          }}
-                        >
-                          {new Date(msg.createdAt).toLocaleTimeString("en-US", {
-                            hour: "numeric",
-                            minute: "2-digit",
-                            hour12: true,
-                          })}
-                        </Typography>
-                        {msg._id === SeletectedMsgId &&
-                        msg.SenderId === myId ? (
-                          <MoreVertIcon />
-                        ) : (
-                          ""
-                        )}
+                          {!msg.isDeleted ? (
+                            <Typography variant="body1">
+                              {msg.message}
+                            </Typography>
+                          ) : (
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "5px",
+                              }}
+                            >
+                              <DoNotDisturbIcon sx={{ color: "#272626ae" }} />{" "}
+                              <Typography
+                                sx={{
+                                  color: "#272626ae",
+                                  fontSize: "14px",
+                                  fontStyle: "italic",
+                                }}
+                              >
+                                This Messgae has been deleted
+                              </Typography>
+                            </Box>
+                          )}
+
+                          <Typography
+                            sx={{ fontSize: "10px", color: "#272626ae" }}
+                          >
+                            {msg.isEdited ? "Edited" : ""}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontSize: "10px",
+                              marginBottom: 0,
+                              color: "#272626ae",
+                            }}
+                          >
+                            {new Date(msg.createdAt).toLocaleTimeString(
+                              "en-US",
+                              {
+                                hour: "numeric",
+                                minute: "2-digit",
+                                hour12: true,
+                              },
+                            )}
+                          </Typography>
+                          {msg._id === SeletectedMsgId &&
+                          msg.SenderId === myId ? (
+                            <MoreVertIcon />
+                          ) : (
+                            ""
+                          )}
+                        </Box>
                       </Box>
                     </Box>
-                  </Box>
+                  </React.Fragment>
                 );
               })}
 
