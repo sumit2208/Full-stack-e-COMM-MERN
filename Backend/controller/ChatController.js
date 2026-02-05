@@ -15,6 +15,7 @@ export const getUserConversations = async (req, res) => {
     const conversations = await Conversation.find({
       participants: CUserId,
     })
+      .sort({ lastMessageAt: -1 })
       .populate({
         path: "Admin",
         select: "name _id",
@@ -84,8 +85,6 @@ export const getUserConversations = async (req, res) => {
   }
 };
 
-
-
 export const getViewParticipants = async (req, res) => {
   const { convId } = req.params;
 
@@ -105,7 +104,7 @@ export const getViewParticipants = async (req, res) => {
         success: true,
       });
     } else {
-      res.status(400).josn({
+      res.status(400).json({
         success: false,
         message: "Not Fetch",
       });
@@ -161,7 +160,7 @@ export const MakeAdmin = async (req, res) => {
       res.status(200).json({
         result,
         success: true,
-        message: `${MakeAdmin} is Now Admin`,
+        message: `User is Now Admin`,
       });
     } else {
       res.status(400).json({
@@ -248,7 +247,7 @@ export const ChangeGroupName = async (req, res) => {
         message: "GroupName Change SuccessFully",
       });
     } else {
-      res.status(400).josn({
+      res.status(400).json({
         result,
         success: false,
         message: "Error While Changing GroupName",

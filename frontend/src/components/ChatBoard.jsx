@@ -1,3 +1,4 @@
+// ChatBoard.jsx - Full Updated Component with Permanent System Messages
 import {
   Box,
   Typography,
@@ -36,6 +37,8 @@ import ChangeCircleIcon from "@mui/icons-material/ChangeCircle";
 import PreviewIcon from "@mui/icons-material/Preview";
 import KeyboardDoubleArrowDownIcon from "@mui/icons-material/KeyboardDoubleArrowDown";
 import MarkChatUnreadIcon from "@mui/icons-material/MarkChatUnread";
+import ExitToAppIcon from "@mui/icons-material/ExitToApp";
+import toast, { Toaster } from "react-hot-toast";
 
 const ChatBoard = () => {
   const TYping = {
@@ -98,7 +101,7 @@ const ChatBoard = () => {
   const messagesContainerRef = useRef(null);
   const firstUnreadRef = useRef(null);
 
-  const MESSAGES_PER_PAGE = 10;
+  const MESSAGES_PER_PAGE = 15;
 
   const scrollToBottom = (force = false) => {
     if (messagesEndRef.current) {
@@ -117,7 +120,9 @@ const ChatBoard = () => {
           behavior: "smooth",
           block: "center",
         });
-        setFirstUnreadMessageId(null);
+        setTimeout(() => {
+          setFirstUnreadMessageId(null);
+        }, 800);
       }, 100);
     }
   };
@@ -217,7 +222,7 @@ const ChatBoard = () => {
     }
   };
 
-  const fetchMessages = async () => {
+  const fetchMessages = async (scrollToUnread = false) => {
     try {
       let lastReadTimestamp = null;
 
@@ -226,7 +231,6 @@ const ChatBoard = () => {
           `http://localhost:1111/getlastread/${myId}/${selectedConvId}`,
         );
         lastReadTimestamp = res?.data?.lastReadTimestamp;
-        
       } catch (err) {
         console.error("Failed to get last read timestamp:", err);
       }
@@ -240,21 +244,27 @@ const ChatBoard = () => {
       setPage(1);
       setHasMore(fetchedMessages.length === MESSAGES_PER_PAGE);
 
-      // if (lastReadTimestamp && fetchedMessages.length > 0) { 
-      //   const lastReadDate = new Date(lastReadTimestamp);
-      //   const firstUnreadMsg = fetchedMessages.find((msg) => {
-      //     const msgDate = new Date(msg.createdAt);
-      //     return msgDate > lastReadDate && msg.SenderId !== myId;
-      //   });
+      if (scrollToUnread && lastReadTimestamp && fetchedMessages.length > 0) {
+        const lastReadDate = new Date(lastReadTimestamp);
+        const firstUnreadMsg = fetchedMessages.find((msg) => {
+          const msgDate = new Date(msg.createdAt);
+          return msgDate > lastReadDate && msg.SenderId !== myId;
+        });
 
-      //   if (firstUnreadMsg) {
-      //     setFirstUnreadMessageId(firstUnreadMsg._id);
-      //   } else {
-      //     setTimeout(() => scrollToBottom(true), 100);
-      //   }
-      // } else {
-      //   setTimeout(() => scrollToBottom(true), 100);
-      // }
+        if (firstUnreadMsg) {
+          console.log("Found unread message:", firstUnreadMsg._id);
+          setFirstUnreadMessageId(firstUnreadMsg._id);
+          setTimeout(() => {
+            socket.emit("markMessagesRead", { conversationId: selectedConvId });
+          }, 1000);
+        } else {
+          setTimeout(() => scrollToBottom(true), 100);
+          socket.emit("markMessagesRead", { conversationId: selectedConvId });
+        }
+      } else {
+        setTimeout(() => scrollToBottom(true), 100);
+        socket.emit("markMessagesRead", { conversationId: selectedConvId });
+      }
     } catch (err) {
       console.error("Failed to load messages:", err);
     }
@@ -300,8 +310,6 @@ const ChatBoard = () => {
         }));
       }
     });
-
-   
 
     socket.on("messageDeleted", ({ MesId }) => {
       setMessages((prev) =>
@@ -366,12 +374,6 @@ const ChatBoard = () => {
     }
   }, [isTyping]);
 
-  // useEffect(() => {
-  //   if (messages.length > 0 && !showScrollToBottom) {
-  //     setTimeout(() => scrollToBottom(true), 100);
-  //   }
-  // }, [messages.length]);
-
   useEffect(() => {
     if (firstUnreadMessageId && messages.length > 0) {
       scrollToFirstUnreadMessage();
@@ -387,7 +389,54 @@ const ChatBoard = () => {
 
     fetchMessages(hasUnread);
 
-    socket.emit("markMessagesRead", { conversationId: selectedConvId });
+    socket.on("group-update", (data) => {
+      if (data.conversationId !== selectedConvId) return;
+
+      let systemMessageText = data.systemMessage;
+
+      if (!systemMessageText) {
+        if (data.type === "user-added") {
+          systemMessageText = `${data.adderUserName} added ${data.addedUserName}`;
+        } else if (data.type === "user-removed") {
+          systemMessageText = `${data.removerUserName} removed ${data.removedUserName}`;
+        }
+      }
+
+      if (systemMessageText) {
+        const tempSystemMsg = {
+          _id: `sys-${Date.now()}`,
+          message: systemMessageText,
+          isSystem: true,
+          createdAt: data.timestamp || new Date().toISOString(),
+        };
+
+        setMessages((prev) => [...prev, tempSystemMsg]);
+        setTimeout(() => scrollToBottom(true), 50);
+      }
+    });
+
+    socket.on("leave-group", (data) => {
+      if (data.conversationId !== selectedConvId) return;
+
+      let systemMessageText = data.systemMessage;
+
+      if (systemMessageText) {
+        const tempSystemMsg = {
+          _id: `sys-${Date.now()}`,
+          message: systemMessageText,
+          isSystem: true,
+          createdAt: data.timestamp || new Date().toISOString(),
+        };
+
+        setMessages((prev) => [...prev, tempSystemMsg]);
+        setTimeout(() => scrollToBottom(true), 50);
+      }
+    });
+
+    return () => {
+      socket.off("group-update");
+      socket.off("leave-group");
+    };
   }, [selectedConvId, socket]);
 
   const loadMoreMessages = async () => {
@@ -398,6 +447,8 @@ const ChatBoard = () => {
 
     const container = messagesContainerRef.current;
     const previousScrollHeight = container?.scrollHeight || 0;
+
+    setFirstUnreadMessageId(null);
 
     try {
       const res = await axios.get(
@@ -430,11 +481,6 @@ const ChatBoard = () => {
     setAdmin_id(admin_id);
     if (convId === selectedConvId) return;
 
-    setUnreadCounts((prev) => ({
-      ...prev,
-      [convId]: 0,
-    }));
-
     setSelectedName(name);
     setSelectedConvId(convId);
     setMessages([]);
@@ -443,8 +489,6 @@ const ChatBoard = () => {
     setHasMore(true);
     setShowScrollToBottom(false);
     setFirstUnreadMessageId(null);
-
-    socket.emit("markMessagesRead", { conversationId: convId });
   };
 
   const handleSend = () => {
@@ -513,6 +557,7 @@ const ChatBoard = () => {
 
     HandleClose();
     fetchConversations();
+    toast.success("Group Created Successfully");
   };
 
   const HandleMenuItem = () => {
@@ -619,6 +664,10 @@ const ChatBoard = () => {
     const result = await axios.get(
       `http://localhost:1111/chats/getviewparticipants/${convId}`,
     );
+
+    // socket.on('participants-updated',({participants})=>{
+    //   setViewMembers(participants)
+    // })
     setViewMembers(result.data.result.participants);
   };
 
@@ -633,9 +682,13 @@ const ChatBoard = () => {
   };
 
   const AddParticipants = async (convId) => {
-    await api.post(`/chats/addnewmembners/${convId}`, {
-      UserId: selectedUserId,
+    selectedUserId.forEach((userId) => {
+      socket.emit("addGroupMember", {
+        conversationId: convId,
+        userIdToAdd: userId,
+      });
     });
+    setselectedUserId([]);
     handleParticipantsModalClose();
     ViewParticipants(selectedConvId);
   };
@@ -646,7 +699,19 @@ const ChatBoard = () => {
   };
 
   const HandleRemoveMember = async (_id) => {
-    await api.patch(`/chats/kickmembers/${selectedConvId}`, { _id: _id });
+    socket.emit("removeGroupMember", {
+      conversationId: selectedConvId,
+      userIdToRemove: _id,
+    });
+    ViewParticipants(selectedConvId);
+    fetchConversations();
+  };
+
+  const HandleLeaveGroup = async () => {
+    socket.emit("UserLeave", {
+      conversationId: selectedConvId,
+      userId: myId,
+    });
     ViewParticipants(selectedConvId);
     fetchConversations();
   };
@@ -662,42 +727,20 @@ const ChatBoard = () => {
   };
 
   const ApiGroupName = async () => {
-    await api.patch(`/chats/groupnamechange/${selectedConvId}`, {
-      NewName: ChangeGroupName.toString(),
-    });
-    fetchConversations();
-    setTransforminput(false);
-    setChangeGroupName("");
+    try {
+      await api.patch(`/chats/groupnamechange/${selectedConvId}`, {
+        NewName: ChangeGroupName.toString(),
+      });
+      fetchConversations();
+      setTransforminput(false);
+      setChangeGroupName("");
+      toast.success("SuccessFully GroupName is Changed.");
+    } catch (error) {
+      toast.failed("GroupName is not Changed");
+    }
   };
-//   useEffect(() => {
-//   socket.on("group-update", (data) => {
-//     const { type, userId, timestamp } = data;
-
-//     const systemMsg = {
-//       _id: `system-${Date.now()}`,
-//       message: type === "user-added" 
-//         ? "User was added to the group" 
-//         : "User was removed from the group",
-//       isSystem: true,
-//       timestamp,
-//     };
-
-//     setMessages((prev) => [...prev, systemMsg]);
-//   });
-
-//   return () => socket.off("group-update");
-// }, []);   
 
   return (
-     
-
-
-//       {message.isSystem ? (
-//   <div className="system-msg">{message.message}</div>
-// ) : (
-//   <div className="user-msg">...</div>
-// )}   
- 
     <>
       {/* modals */}
 
@@ -1068,6 +1111,7 @@ const ChatBoard = () => {
 
       {/* Main code */}
 
+      <Toaster />
       <Box sx={{ fontFamily: "Arial, sans-serif", p: 4 }}>
         {Transforminput ? (
           <Alert
@@ -1126,20 +1170,13 @@ const ChatBoard = () => {
           }}
         >
           <Box sx={{ width: 320, height: "580px" }}>
-            <Box
-              sx={{
-                bgcolor: "#F5F5F5",
-                p: 2,
-                maxHeight: "calc(100% - 20px)",
-                overflowY: "auto",
-                borderRadius: "10px",
-              }}
-            >
+            <Box>
               <Box
                 sx={{
                   bgcolor: "#075E54",
                   p: 1.5,
                   display: "flex",
+
                   justifyContent: "space-between",
                   alignItems: "center",
                   borderRadius: "10px",
@@ -1171,87 +1208,130 @@ const ChatBoard = () => {
                   <MoreVertIcon sx={{ color: "white" }} />
                 </IconButton>
               </Box>
-
+            </Box>
+            <Box
+              sx={{
+                bgcolor: "#F5F5F5",
+                p: 2,
+                maxHeight: " 450px",
+                overflowY: "auto",
+                mt: "8px",
+                borderRadius: "10px",
+                "&::-webkit-scrollbar": {
+                  width: "3px",
+                },
+                "&::-webkit-scrollbar-track": {
+                  background: "transparent",
+                },
+                "&::-webkit-scrollbar-thumb": {
+                  background: "#888",
+                  borderRadius: "10px",
+                },
+              }}
+            >
               {conversations.map((conv) => {
                 const unread = unreadCounts[conv.conversationId] || 0;
 
                 return (
                   <>
-                    <Box
-                      key={conv.conversationId}
-                      onClick={() =>
-                        handleSelectConversation(
-                          conv.userDetail.name,
-                          conv.conversationId,
-                          conv?.Admin?.map((e) => e.name),
-                          conv?.Admin?.map((e) => e._id),
-                        )
-                      }
-                      sx={{
-                        p: 1.5,
-                        borderRadius: "10px",
-                        cursor: "pointer",
-                        bgcolor:
-                          selectedConvId === conv.conversationId
-                            ? "#e0e0ff"
-                            : "transparent",
-                        "&:hover": { bgcolor: "#f0f0ff" },
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 2,
-                        mb: 1,
-                        mt: 1,
-                      }}
-                    >
+                    <Box>
                       <Box
+                        key={conv.conversationId}
+                        onClick={() =>
+                          handleSelectConversation(
+                            conv.userDetail.name,
+                            conv.conversationId,
+                            conv?.Admin?.map((e) => e.name),
+                            conv?.Admin?.map((e) => e._id),
+                          )
+                        }
                         sx={{
+                          p: 1.5,
+                          borderRadius: "10px",
+                          cursor: "pointer",
+                          bgcolor:
+                            selectedConvId === conv.conversationId
+                              ? "#e0e0ff"
+                              : "transparent",
+                          "&:hover": { bgcolor: "#f0f0ff" },
                           display: "flex",
                           alignItems: "center",
+                          justifyContent: "space-between",
                           gap: 2,
-                          width: "100%",
-                          justifyContent:
-                            selectedConvId === conv.conversationId
-                              ? "space-between"
-                              : "",
+                          mb: 1,
+                          mt: 1,
                         }}
                       >
-                        {conv.type === "group" ? (
-                          <>
-                            <PeopleAltIcon fontSize="medium" />
-                          </>
-                        ) : (
-                          <AccountCircleIcon fontSize="medium" />
-                        )}
-
-                        <Typography
-                          fontWeight={
-                            selectedConvId === conv.conversationId ? 600 : 500
-                          }
-                        >
-                          {conv.userDetail.name}
-                        </Typography>
-                      </Box>
-
-                      {unread > 0 && selectedConvId !== conv.conversationId && (
                         <Box
                           sx={{
-                            minWidth: 24,
-                            height: 24,
-                            borderRadius: "50%",
-                            bgcolor: "#25D366",
-                            color: "white",
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "0.85rem",
-                            fontWeight: "bold",
-                            px: 1,
+                            gap: 2,
+                            width: "100%",
+                            justifyContent: "space-between",
                           }}
                         >
-                          {unread > 99 ? "99+" : unread}
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "20px",
+                            }}
+                          >
+                            {conv.type === "group" ? (
+                              <>
+                                <PeopleAltIcon fontSize="medium" />
+                              </>
+                            ) : (
+                              <AccountCircleIcon fontSize="medium" />
+                            )}
+                            <Box>
+                              <Typography
+                                fontWeight={
+                                  selectedConvId === conv.conversationId
+                                    ? 600
+                                    : 500
+                                }
+                              >
+                                {conv.userDetail.name}
+                              </Typography>
+                              <Typography sx={{ fontSize: "10px" }}>
+                                {conv?.lastMessage?.message || ""}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Typography sx={{ fontSize: "10px" }}>
+                            {new Date(
+                              conv?.lastMessage?.createdAt,
+                            ).toLocaleTimeString("en-US", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                              hour12: true,
+                            })}
+                          </Typography>
                         </Box>
-                      )}
+
+                        {unread > 0 &&
+                          selectedConvId !== conv.conversationId && (
+                            <Box
+                              sx={{
+                                minWidth: 24,
+                                height: 24,
+                                borderRadius: "50%",
+                                bgcolor: "#25D366",
+                                color: "white",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "0.85rem",
+                                fontWeight: "bold",
+                                px: 1,
+                              }}
+                            >
+                              {unread > 99 ? "99+" : unread}
+                            </Box>
+                          )}
+                      </Box>
                     </Box>
                   </>
                 );
@@ -1425,6 +1505,23 @@ const ChatBoard = () => {
                             </Box>
                           </MenuItem>
                         )}
+                        <MenuItem
+                          sx={{ width: "100%" }}
+                          onClick={HandleLeaveGroup}
+                        >
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "20px",
+                              width: "100%",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <Typography>Leave Group</Typography>
+                            <ExitToAppIcon />
+                          </Box>
+                        </MenuItem>
                       </Box>
                     </Menu>
                   </Box>
@@ -1513,217 +1610,245 @@ const ChatBoard = () => {
                         </Typography>
                       </Box>
                     )}
-
-                    <Box
-                      data-message-id={msg._id}
-                      sx={{
-                        alignSelf: isMe ? "flex-end" : "flex-start",
-                        maxWidth: "70%",
-                        cursor: "pointer",
-                        position: "relative",
-                        "&:hover .message-actions": {
-                          opacity: 1,
-                        },
-                      }}
-                      onMouseEnter={(e) =>
-                        handleMessageMouseEnter(msg._id, msg, e)
-                      }
-                      onMouseLeave={handleMessageMouseLeave}
-                    >
-                      <Modal
-                        open={DeleteModal}
-                        onClose={HandleCloseDeleteModal}
+                    {msg.isSystem ? (
+                      <Box
                         sx={{
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
+                          my: 1,
+                          py: 0.5,
+                          px: 2,
+                          borderRadius: "10px",
+                          backgroundColor: "#E8F5E9",
+                          alignSelf: "center",
+                          maxWidth: "80%",
                         }}
                       >
-                        <Box
+                        <Typography
+                          variant="caption"
                           sx={{
-                            bgcolor: "#075E54",
-                            height: "150px",
-                            width: "250px",
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "20px",
-                            borderRadius: "15px",
+                            fontSize: "12px",
+                            color: "#1B5E20",
+                            fontStyle: "italic",
+                            textAlign: "center",
                           }}
                         >
-                          <Typography sx={{ color: "white" }}>
-                            Are You Sure!
-                          </Typography>
+                          {msg.message}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box
+                        data-message-id={msg._id}
+                        sx={{
+                          alignSelf: isMe ? "flex-end" : "flex-start",
+                          maxWidth: "70%",
+                          cursor: "pointer",
+                          position: "relative",
+                          "&:hover .message-actions": {
+                            opacity: 1,
+                          },
+                        }}
+                        onMouseEnter={(e) =>
+                          handleMessageMouseEnter(msg._id, msg, e)
+                        }
+                        onMouseLeave={handleMessageMouseLeave}
+                      >
+                        <Modal
+                          open={DeleteModal}
+                          onClose={HandleCloseDeleteModal}
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              bgcolor: "#075E54",
+                              height: "150px",
+                              width: "250px",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "20px",
+                              borderRadius: "15px",
+                            }}
+                          >
+                            <Typography sx={{ color: "white" }}>
+                              Are You Sure!
+                            </Typography>
+                            <Box
+                              sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                gap: "15px",
+                              }}
+                            >
+                              <Button
+                                variant="contained"
+                                sx={{ bgcolor: "red", borderRadius: "8px" }}
+                                onClick={HandleCloseDeleteModal}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                variant="contained"
+                                sx={{ bgcolor: "green", borderRadius: "8px" }}
+                                onClick={HandleDeleteMsg}
+                              >
+                                Confirm
+                              </Button>
+                            </Box>
+                          </Box>
+                        </Modal>
+
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 2,
+                            display: "flex",
+                            gap: "5px",
+                            flexDirection: "column",
+                            bgcolor: isMe ? "#26c964d4" : "white",
+                            color: isMe ? "white" : "text.primary",
+                            boxShadow: 1,
+                            wordBreak: "break-word",
+                            borderLeft:
+                              isFirstUnread && !isMe
+                                ? "3px solid #25D366"
+                                : "none",
+                          }}
+                          onDoubleClick={() => setSeletectedMsgId([])}
+                        >
+                          {hoveredMessageId === msg._id &&
+                            canEditDeleteMessage(msg) &&
+                            !msg.isDeleted && (
+                              <IconButton
+                                size="small"
+                                className="message-actions"
+                                onClick={handleMessageMenuClick}
+                                sx={{
+                                  position: "absolute",
+                                  top: 0,
+                                  right: 0,
+                                  opacity: 0,
+                                  transition: "opacity 0.2s",
+                                  bgcolor: "rgba(255, 255, 255, 0.8)",
+                                  "&:hover": {
+                                    bgcolor: "rgba(255, 255, 255, 1)",
+                                  },
+                                }}
+                              >
+                                <MoreVertIcon fontSize="small" />
+                              </IconButton>
+                            )}
+
                           <Box
                             sx={{
                               display: "flex",
                               justifyContent: "space-between",
                               alignItems: "center",
-                              gap: "15px",
+                              gap: "20px",
                             }}
                           >
-                            <Button
-                              variant="contained"
-                              sx={{ bgcolor: "red", borderRadius: "8px" }}
-                              onClick={HandleCloseDeleteModal}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              variant="contained"
-                              sx={{ bgcolor: "green", borderRadius: "8px" }}
-                              onClick={HandleDeleteMsg}
-                            >
-                              Confirm
-                            </Button>
-                          </Box>
-                        </Box>
-                      </Modal>
-
-                      <Box
-                        sx={{
-                          p: 1.5,
-                          borderRadius: 2,
-                          display: "flex",
-                          gap: "5px",
-                          flexDirection: "column",
-                          bgcolor: isMe ? "#26c964d4" : "white",
-                          color: isMe ? "white" : "text.primary",
-                          boxShadow: 1,
-                          wordBreak: "break-word",
-                          borderLeft:
-                            isFirstUnread && !isMe
-                              ? "3px solid #25D366"
-                              : "none",
-                        }}
-                        onDoubleClick={() => setSeletectedMsgId([])}
-                      >
-                        {hoveredMessageId === msg._id &&
-                          canEditDeleteMessage(msg) &&
-                          !msg.isDeleted && (
-                            <IconButton
-                              size="small"
-                              className="message-actions"
-                              onClick={handleMessageMenuClick}
-                              sx={{
-                                position: "absolute",
-                                top: 0,
-                                right: 0,
-                                opacity: 0,
-                                transition: "opacity 0.2s",
-                                bgcolor: "rgba(255, 255, 255, 0.8)",
-                                "&:hover": {
-                                  bgcolor: "rgba(255, 255, 255, 1)",
-                                },
-                              }}
-                            >
-                              <MoreVertIcon fontSize="small" />
-                            </IconButton>
-                          )}
-
-                        <Box
-                          sx={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: "20px",
-                          }}
-                        >
-                          <Modal
-                            open={editopen}
-                            onClose={handleEditClose}
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              bgcolor: "transparent",
-                            }}
-                          >
-                            <Box
+                            <Modal
+                              open={editopen}
+                              onClose={handleEditClose}
                               sx={{
                                 display: "flex",
                                 alignItems: "center",
-                                bgcolor: "#272626ae",
-                                p: 2,
-                                borderRadius: "8px",
+                                justifyContent: "center",
+                                bgcolor: "transparent",
                               }}
                             >
-                              <Input
-                                placeholder="Edit msg"
+                              <Box
                                 sx={{
-                                  width: "300px",
-                                  bgcolor: "white",
-                                  borderRadius: "10px",
-                                  p: 1,
-                                }}
-                                value={EditMsg}
-                                onChange={EditMsgValue}
-                              />
-                              <IconButton>
-                                <CheckCircleIcon
-                                  sx={{ color: "white" }}
-                                  onClick={() => HandleEdit(msg.SenderId)}
-                                />
-                              </IconButton>
-                            </Box>
-                          </Modal>
-
-                          {!msg.isDeleted ? (
-                            <Typography variant="body1">
-                              {msg.message}
-                            </Typography>
-                          ) : (
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "5px",
-                              }}
-                            >
-                              <DoNotDisturbIcon sx={{ color: "#272626ae" }} />{" "}
-                              <Typography
-                                sx={{
-                                  color: "#272626ae",
-                                  fontSize: "14px",
-                                  fontStyle: "italic",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  bgcolor: "#272626ae",
+                                  p: 2,
+                                  borderRadius: "8px",
                                 }}
                               >
-                                This Messgae has been deleted
-                              </Typography>
-                            </Box>
-                          )}
+                                <Input
+                                  placeholder="Edit msg"
+                                  sx={{
+                                    width: "300px",
+                                    bgcolor: "white",
+                                    borderRadius: "10px",
+                                    p: 1,
+                                  }}
+                                  value={EditMsg}
+                                  onChange={EditMsgValue}
+                                />
+                                <IconButton>
+                                  <CheckCircleIcon
+                                    sx={{ color: "white" }}
+                                    onClick={() => HandleEdit(msg.SenderId)}
+                                  />
+                                </IconButton>
+                              </Box>
+                            </Modal>
 
-                          <Typography
-                            sx={{ fontSize: "10px", color: "#272626ae" }}
-                          >
-                            {msg.isEdited ? "Edited" : ""}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              fontSize: "10px",
-                              marginBottom: 0,
-                              color: "#272626ae",
-                            }}
-                          >
-                            {new Date(msg.createdAt).toLocaleTimeString(
-                              "en-US",
-                              {
-                                hour: "numeric",
-                                minute: "2-digit",
-                                hour12: true,
-                              },
+                            {!msg.isDeleted ? (
+                              <Typography variant="body1">
+                                {msg.message}
+                              </Typography>
+                            ) : (
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "5px",
+                                }}
+                              >
+                                <DoNotDisturbIcon sx={{ color: "#272626ae" }} />{" "}
+                                <Typography
+                                  sx={{
+                                    color: "#272626ae",
+                                    fontSize: "14px",
+                                    fontStyle: "italic",
+                                  }}
+                                >
+                                  This Messgae has been deleted
+                                </Typography>
+                              </Box>
                             )}
-                          </Typography>
-                          {msg._id === SeletectedMsgId &&
-                          msg.SenderId === myId ? (
-                            <MoreVertIcon />
-                          ) : (
-                            ""
-                          )}
+
+                            <Typography
+                              sx={{ fontSize: "10px", color: "#272626ae" }}
+                            >
+                              {msg.isEdited ? "Edited" : ""}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                fontSize: "10px",
+                                marginBottom: 0,
+                                color: "#272626ae",
+                              }}
+                            >
+                              {new Date(msg.createdAt).toLocaleTimeString(
+                                "en-US",
+                                {
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                },
+                              )}
+                            </Typography>
+                            {msg._id === SeletectedMsgId &&
+                            msg.SenderId === myId ? (
+                              <MoreVertIcon />
+                            ) : (
+                              ""
+                            )}
+                          </Box>
                         </Box>
                       </Box>
-                    </Box>
+                    )}
                   </React.Fragment>
                 );
               })}

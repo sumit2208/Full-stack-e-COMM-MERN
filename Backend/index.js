@@ -17,6 +17,7 @@ import http from "http";
 import { Server } from "socket.io";
 import Message from "./Models/Message.js";
 import Conversation from "./Models/Conversation.js";
+import User from "./Models/User.js";
 import multer from "multer";
 import path from "path";
 import mongoose, { Schema } from "mongoose";
@@ -157,6 +158,100 @@ app.post("/paymentverification", async (req, res) => {
   }
 });
 
+app.patch("/chats/add-user", async (req, res) => {
+  const { conversationId, userId } = req.body;
+
+  try {
+    const conversation = await Conversation.findById(conversationId);
+    conversation.participants.push(userId);
+    await conversation.save();
+
+    res.json({ message: "User added" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/chats/remove-user", async (req, res) => {
+  const { conversationId, userId } = req.body;
+
+  try {
+    const conversation = await Conversation.findById(conversationId);
+
+    conversation.participants.pull(userId);
+    await conversation.save();
+
+    res.json({ message: "User removed" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/chats/getmessage/:convId/msg", async (req, res) => {
+  const { convId } = req.params;
+  const { page = 1, limit = 20, since } = req.query;
+
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+
+  try {
+    const query = {
+      conversationId: new mongoose.Types.ObjectId(convId),
+    };
+
+    let sort = { createdAt: -1 };
+
+    if (since) {
+      let sinceDate = null;
+
+      if (mongoose.isValidObjectId(since)) {
+        const anchor = await Message.findById(since).select("createdAt").lean();
+        if (anchor) {
+          sinceDate = anchor.createdAt;
+          console.log(
+            `since=messageId → using createdAt: ${sinceDate.toISOString()}`,
+          );
+        }
+      } else {
+        sinceDate = new Date(since);
+        if (!isNaN(sinceDate.getTime())) {
+          console.log(`since=timestamp → using: ${sinceDate.toISOString()}`);
+        } else {
+          console.warn(`Invalid since format: ${since}`);
+        }
+      }
+
+      if (sinceDate) {
+        query.createdAt = { $gt: sinceDate };
+      }
+    }
+
+    const messages = await Message.find(query)
+      .sort(sort)
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum)
+      .lean();
+
+    const messagesForClient = messages.reverse();
+
+    const hasMore = messages.length === limitNum;
+
+    const total = await Message.countDocuments({
+      conversationId: new mongoose.Types.ObjectId(convId),
+    });
+
+    res.json({
+      messages: messagesForClient,
+      hasMore,
+      total,
+      page: pageNum,
+    });
+  } catch (err) {
+    console.error("getmessage error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
+  }
+});
+
 const PORT = process.env.PORT || 1111;
 
 io.use((socket, next) => {
@@ -192,6 +287,134 @@ io.on("connection", (socket) => {
       });
     } catch (error) {
       console.error("Create Group Chat   Error:", error);
+    }
+  });
+
+  socket.on("addGroupMember", async ({ conversationId, userIdToAdd }) => {
+    try {
+      const conv = await Conversation.findById(conversationId);
+      if (!conv) return;
+
+      if (!conv.Admin.map((id) => id.toString()).includes(socket.user.id)) {
+        return socket.emit("error", { msg: "Not admin" });
+      }
+
+      if (conv.participants.includes(userIdToAdd)) {
+        return socket.emit("error", { msg: "Already member" });
+      }
+
+      conv.participants.push(userIdToAdd);
+      await conv.save();
+
+      const [addedUser, adderUser] = await Promise.all([
+        // const [addedUser, adderUser] = await Promise.allSettled()([
+        User.findById(userIdToAdd).select("name"),
+        User.findById(socket.user.id).select("name"),
+      ]);
+
+      const systemText = `${adderUser?.name || "Someone"} added ${addedUser?.name || "a user"}`;
+
+      const systemMessage = await Message.create({
+        SenderId: socket.user.id,
+        conversationId: conversationId,
+        message: systemText,
+        type: "system",
+        isSystem: true,
+        createdAt: new Date(),
+      });
+
+      io.to(conversationId).emit("group-update", {
+        type: "user-added",
+        conversationId,
+        addedUserName: addedUser?.name,
+        adderUserName: adderUser?.name,
+        systemMessage: systemText,
+        timestamp: new Date().toISOString(),
+      });
+
+      io.to(conversationId).emit("participants-updated", {
+        participants: conv.participants,
+      });
+    } catch (err) {
+      console.error("addGroupMember failed:", err);
+    }
+  });
+
+  socket.on("UserLeave", async ({ conversationId, userId }) => {
+    try {
+      const conv = await Conversation.findById(conversationId);
+      if (!conv) return;
+
+      conv.participants.pull(userId);
+      await conv.save();
+
+      const leaveUser = await User.findById(userId).select("name");
+
+      const systemMsg = `${leaveUser?.name} Leave the Group`;
+
+      const systemMessage = await Message.create({
+        SenderId: userId,
+        conversationId: conversationId,
+        message: systemMsg,
+        type: "system",
+        isSystem: true,
+        createdAt: new Date(),
+      });
+
+      io.to(conversationId).emit("leave-group", {
+        type: "user-leave",
+        conversationId,
+        leaveUserName: leaveUser?.name,
+        systemMessage: systemMsg,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.log("UserLeave Failed", err);
+    }
+  });
+
+  socket.on("removeGroupMember", async ({ conversationId, userIdToRemove }) => {
+    try {
+      const conv = await Conversation.findById(conversationId);
+      if (!conv) return;
+
+      if (!conv.Admin.map((id) => id.toString()).includes(socket.user.id)) {
+        return socket.emit("error", { msg: "Not admin" });
+      }
+
+      conv.participants.pull(userIdToRemove);
+      await conv.save();
+
+      const [removedUser, removerUser] = await Promise.all([
+        User.findById(userIdToRemove).select("name"),
+        User.findById(socket.user.id).select("name"),
+      ]);
+
+      const systemText = `${removerUser?.name || "Someone"} removed ${removedUser?.name || "a user"}`;
+
+      const systemMessage = await Message.create({
+        SenderId: socket.user.id,
+        conversationId: conversationId,
+        message: systemText,
+        type: "system",
+        isSystem: true,
+        createdAt: new Date(),
+      });
+
+      io.to(conversationId).emit("group-update", {
+        type: "user-removed",
+        conversationId,
+        removedUserName: removedUser?.name,
+        removerUserName: removerUser?.name,
+        systemMessage: systemText,
+        timestamp: new Date().toISOString(),
+      });
+
+      io.to(conversationId).emit("participants-updated", {
+        participants: conv.participants,
+      });
+    } catch (err) {
+      console.error("removeGroupMember failed:", err);
     }
   });
 
@@ -247,6 +470,15 @@ io.on("connection", (socket) => {
         message,
         type,
       });
+
+      await Conversation.findByIdAndUpdate(
+        conversationId,
+        {
+          lastMessage: newMsg._id,
+          lastMessageAt: new Date(),
+        },
+        { new: true },
+      );
 
       const payload = {
         _id: newMsg._id.toString(),
@@ -454,104 +686,6 @@ app.get("/getlastread/:myId/:selectedConvId", async (req, res) => {
   } catch (error) {
     console.error("Get last read error:", error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-app.patch("/chats/add-user", async (req, res) => {
-  const { conversationId, userId } = req.body;
-
-  const conversation = await Conversation.findById(conversationId);
-  conversation.participants.push(userId);
-  await conversation.save();
-
-  io.to(conversationId).emit("group-update", {
-    type: "user-added",
-    conversationId,
-    userId,
-    timestamp: new Date(),
-  });
-
-  res.json({ message: "User added" });
-});
-
-app.patch("/chats/remove-user", async (req, res) => {
-  const { conversationId, userId } = req.body;
-
-  const conversation = await Conversation.findById(conversationId);
-  conversation.participants.pull(userId);
-  await conversation.save();
-
-  io.to(conversationId).emit("group-update", {
-    type: "user-remove",
-    conversationId,
-    userId,
-    timestamp: new Date(),
-  });
-
-  res.json({ message: "User Remove" });
-});
-
-app.get("/chats/getmessage/:convId/msg", async (req, res) => {
-  const { convId } = req.params;
-  const { page = 1, limit = 20, since } = req.query;
-
-  const pageNum = parseInt(page);
-  const limitNum = parseInt(limit);
-
-  try {
-    const query = {
-      conversationId: new mongoose.Types.ObjectId(convId),
-    };
-
-    let sort = { createdAt: -1 };  
- 
-    if (since) {
-      let sinceDate = null;
- 
-      if (mongoose.isValidObjectId(since)) {
-        const anchor = await Message.findById(since).select("createdAt").lean();
-        if (anchor) {
-          sinceDate = anchor.createdAt;
-          console.log(`since=messageId → using createdAt: ${sinceDate.toISOString()}`);
-        }
-      } 
-      else {
-        sinceDate = new Date(since);
-        if (!isNaN(sinceDate.getTime())) {
-          console.log(`since=timestamp → using: ${sinceDate.toISOString()}`);
-        } else {
-          console.warn(`Invalid since format: ${since}`);
-        }
-      }
-
-      if (sinceDate) {
-        query.createdAt = { $gt: sinceDate };
-      }
-    }
- 
-    const messages = await Message.find(query)
-      .sort(sort)
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean();
- 
-    const messagesForClient = messages.reverse();
-
-    const hasMore = messages.length === limitNum;
- 
-    const total = await Message.countDocuments({ conversationId: new mongoose.Types.ObjectId(convId) });
-
-    console.log(`getmessage → conv:${convId} | page:${pageNum} | limit:${limitNum} | since:${since || 'none'} | returned:${messagesForClient.length} msgs`);
-
-    res.json({
-      messages: messagesForClient,
-      hasMore,
-      total,
-      page: pageNum,
-    });
-  } catch (err) {
-    console.error("getmessage error:", err);
-    res.status(500).json({ error: err.message || "Server error" });
   }
 });
 

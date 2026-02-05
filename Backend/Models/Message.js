@@ -31,18 +31,22 @@ const MessageSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
     isEdited: {
+      type: Boolean,
+      default: false,
+    }, 
+    isSystem: {
       type: Boolean,
       default: false,
     },
     type: {
       type: String,
-      enum: ["text", "image", "video", "voice", "document"],
+      enum: ["text", "image", "video", "voice", "document", "system"],
       default: "text",
     },
   },
   { timestamps: true },
 );
+
 const Message = mongoose.model("Message", MessageSchema, "Message");
 export default Message;
