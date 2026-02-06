@@ -34,7 +34,7 @@ const MessageSchema = new mongoose.Schema(
     isEdited: {
       type: Boolean,
       default: false,
-    }, 
+    },
     isSystem: {
       type: Boolean,
       default: false,

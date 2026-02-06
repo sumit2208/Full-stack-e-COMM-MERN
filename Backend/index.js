@@ -314,6 +314,16 @@ io.on("connection", (socket) => {
 
       const systemText = `${adderUser?.name || "Someone"} added ${addedUser?.name || "a user"}`;
 
+      const partname = await Conversation.findById(conversationId)
+        .populate({
+          path: "participants",
+          select: "name email",
+        })
+        .populate({
+          path: "Admin",
+          select: "_id name",
+        });
+
       const systemMessage = await Message.create({
         SenderId: socket.user.id,
         conversationId: conversationId,
@@ -333,7 +343,7 @@ io.on("connection", (socket) => {
       });
 
       io.to(conversationId).emit("participants-updated", {
-        participants: conv.participants,
+        participants: partname,
       });
     } catch (err) {
       console.error("addGroupMember failed:", err);
@@ -373,6 +383,29 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("make[0]admin", async ({ conversationId }) => {
+    try {
+      const Participants =
+        await Conversation.findById(conversationId).select("participants");
+        
+      const ZeroUserAdmin = Participants?.participants[0];
+      // console.log(ZeroUserAdmin);
+      const UpdatedAdmin = await Conversation.findByIdAndUpdate(
+        { _id: conversationId },
+        {
+          $set: { Admin: ZeroUserAdmin },
+        },
+        { new: true },
+      ).populate({
+        path: "Admin",
+        select: "name",
+      });
+      socket.emit("AdminUpdated", UpdatedAdmin);
+    } catch (err) {
+      console.log("Make[0]admin Failed", err);
+    }
+  });
+
   socket.on("removeGroupMember", async ({ conversationId, userIdToRemove }) => {
     try {
       const conv = await Conversation.findById(conversationId);
@@ -384,6 +417,16 @@ io.on("connection", (socket) => {
 
       conv.participants.pull(userIdToRemove);
       await conv.save();
+
+      const partname = await Conversation.findById(conversationId)
+        .populate({
+          path: "participants",
+          select: "name email",
+        })
+        .populate({
+          path: "Admin",
+          select: "_id name",
+        });
 
       const [removedUser, removerUser] = await Promise.all([
         User.findById(userIdToRemove).select("name"),
@@ -411,7 +454,7 @@ io.on("connection", (socket) => {
       });
 
       io.to(conversationId).emit("participants-updated", {
-        participants: conv.participants,
+        participants: partname,
       });
     } catch (err) {
       console.error("removeGroupMember failed:", err);

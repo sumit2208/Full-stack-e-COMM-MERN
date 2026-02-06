@@ -1,4 +1,3 @@
-// ChatBoard.jsx - Full Updated Component with Permanent System Messages
 import {
   Box,
   Typography,
@@ -18,6 +17,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SendIcon from "@mui/icons-material/Send";
 import { io } from "socket.io-client";
+import InputEmoji from "react-input-emoji";
 import axios from "axios";
 import Lottie from "react-lottie";
 import animationData from "../animations/Typings.json";
@@ -433,9 +433,19 @@ const ChatBoard = () => {
       }
     });
 
+    socket.on("AdminUpdated", ({ UpdatedAdmin }) => {
+      setAdminName(UpdatedAdmin.Admin.map((e) => e.name));
+    });
+
+    socket.on("participants-updated", ({ participants }) => {
+      setViewMembers(participants.participants);
+    });
+
     return () => {
       socket.off("group-update");
       socket.off("leave-group");
+      socket.off("AdminUpdated");
+      socket.off('participants-updated')
     };
   }, [selectedConvId, socket]);
 
@@ -519,8 +529,8 @@ const ChatBoard = () => {
   };
 
   const handleTyping = (e) => {
-    const value = e.target.value;
-    setText(value);
+    // const value = e.target.value;
+    setText(e);
 
     if (!selectedConvId) return;
 
@@ -665,9 +675,6 @@ const ChatBoard = () => {
       `http://localhost:1111/chats/getviewparticipants/${convId}`,
     );
 
-    // socket.on('participants-updated',({participants})=>{
-    //   setViewMembers(participants)
-    // })
     setViewMembers(result.data.result.participants);
   };
 
@@ -708,10 +715,24 @@ const ChatBoard = () => {
   };
 
   const HandleLeaveGroup = async () => {
+    if (Admin_id.includes(myId) && Admin_id.length == 1) {
+      return (
+        socket.emit("UserLeave", {
+          conversationId: selectedConvId,
+          userId: myId,
+        }),
+        socket.emit("make[0]admin", {
+          conversationId: selectedConvId,
+        }),
+        setSelectedName(null)
+      );
+    }
+
     socket.emit("UserLeave", {
       conversationId: selectedConvId,
       userId: myId,
     });
+    setSelectedName(null);
     ViewParticipants(selectedConvId);
     fetchConversations();
   };
@@ -1532,7 +1553,7 @@ const ChatBoard = () => {
                     onClick={() => scrollToBottom(false)}
                     sx={{
                       position: "absolute",
-                      bottom: 70,
+                      bottom: 90,
                       right: 20,
                       zIndex: 1000,
                       bgcolor: "#075E54",
@@ -1551,319 +1572,326 @@ const ChatBoard = () => {
             ) : (
               ""
             )}
+            {selectedName ? (
+              <Box
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                sx={{
+                  flex: 1,
+                  p: 2,
+                  bgcolor: "#dfdfe2",
+                  overflowY: "auto",
+                  "&::-webkit-scrollbar": {
+                    width: "6px",
+                  },
+                  "&::-webkit-scrollbar-track": {
+                    background: "transparent",
+                  },
+                  "&::-webkit-scrollbar-thumb": {
+                    background: "#888",
+                    borderRadius: "3px",
+                  },
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 1.5,
+                }}
+              >
+                {isLoadingMore && (
+                  <Box sx={{ display: "flex", justifyContent: "center", p: 2 }}>
+                    <CircularProgress size={24} />
+                  </Box>
+                )}
 
-            <Box
-              ref={messagesContainerRef}
-              onScroll={handleScroll}
-              sx={{
-                flex: 1,
-                p: 2,
-                bgcolor: "#dfdfe2",
-                overflowY: "auto",
-                "&::-webkit-scrollbar": {
-                  width: "6px",
-                },
-                "&::-webkit-scrollbar-track": {
-                  background: "transparent",
-                },
-                "&::-webkit-scrollbar-thumb": {
-                  background: "#888",
-                  borderRadius: "3px",
-                },
-                display: "flex",
-                flexDirection: "column",
-                gap: 1.5,
-              }}
-            >
-              {isLoadingMore && (
-                <Box sx={{ display: "flex", justifyContent: "center", p: 2 }}>
-                  <CircularProgress size={24} />
-                </Box>
-              )}
+                {messages.map((msg, index) => {
+                  const isMe = msg.SenderId === myId;
+                  const isFirstUnread = msg._id === firstUnreadMessageId;
 
-              {messages.map((msg, index) => {
-                const isMe = msg.SenderId === myId;
-                const isFirstUnread = msg._id === firstUnreadMessageId;
-
-                return (
-                  <React.Fragment key={msg._id}>
-                    {isFirstUnread && (
-                      <Box
-                        ref={firstUnreadRef}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          my: 2,
-                          py: 1,
-                          px: 3,
-                          borderRadius: "20px",
-                          backgroundColor: "#075E54",
-                          color: "white",
-                          alignSelf: "center",
-                          maxWidth: "80%",
-                        }}
-                      >
-                        <MarkChatUnreadIcon sx={{ mr: 1, fontSize: "16px" }} />
-                        <Typography variant="caption" sx={{ fontWeight: 500 }}>
-                          Unread Messages
-                        </Typography>
-                      </Box>
-                    )}
-                    {msg.isSystem ? (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          my: 1,
-                          py: 0.5,
-                          px: 2,
-                          borderRadius: "10px",
-                          backgroundColor: "#E8F5E9",
-                          alignSelf: "center",
-                          maxWidth: "80%",
-                        }}
-                      >
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            fontSize: "12px",
-                            color: "#1B5E20",
-                            fontStyle: "italic",
-                            textAlign: "center",
-                          }}
-                        >
-                          {msg.message}
-                        </Typography>
-                      </Box>
-                    ) : (
-                      <Box
-                        data-message-id={msg._id}
-                        sx={{
-                          alignSelf: isMe ? "flex-end" : "flex-start",
-                          maxWidth: "70%",
-                          cursor: "pointer",
-                          position: "relative",
-                          "&:hover .message-actions": {
-                            opacity: 1,
-                          },
-                        }}
-                        onMouseEnter={(e) =>
-                          handleMessageMouseEnter(msg._id, msg, e)
-                        }
-                        onMouseLeave={handleMessageMouseLeave}
-                      >
-                        <Modal
-                          open={DeleteModal}
-                          onClose={HandleCloseDeleteModal}
+                  return (
+                    <React.Fragment key={msg._id}>
+                      {isFirstUnread && (
+                        <Box
+                          ref={firstUnreadRef}
                           sx={{
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
+                            my: 2,
+                            py: 1,
+                            px: 3,
+                            borderRadius: "20px",
+                            backgroundColor: "#075E54",
+                            color: "white",
+                            alignSelf: "center",
+                            maxWidth: "80%",
                           }}
                         >
-                          <Box
+                          <MarkChatUnreadIcon
+                            sx={{ mr: 1, fontSize: "16px" }}
+                          />
+                          <Typography
+                            variant="caption"
+                            sx={{ fontWeight: 500 }}
+                          >
+                            Unread Messages
+                          </Typography>
+                        </Box>
+                      )}
+                      {msg.isSystem ? (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            my: 1,
+                            py: 0.5,
+                            px: 2,
+                            borderRadius: "10px",
+                            backgroundColor: "#E8F5E9",
+                            alignSelf: "center",
+                            maxWidth: "80%",
+                          }}
+                        >
+                          <Typography
+                            variant="caption"
                             sx={{
-                              bgcolor: "#075E54",
-                              height: "150px",
-                              width: "250px",
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: "20px",
-                              borderRadius: "15px",
+                              fontSize: "12px",
+                              color: "#1B5E20",
+                              fontStyle: "italic",
+                              textAlign: "center",
                             }}
                           >
-                            <Typography sx={{ color: "white" }}>
-                              Are You Sure!
-                            </Typography>
+                            {msg.message}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Box
+                          data-message-id={msg._id}
+                          sx={{
+                            alignSelf: isMe ? "flex-end" : "flex-start",
+                            maxWidth: "70%",
+                            cursor: "pointer",
+                            position: "relative",
+                            "&:hover .message-actions": {
+                              opacity: 1,
+                            },
+                          }}
+                          onMouseEnter={(e) =>
+                            handleMessageMouseEnter(msg._id, msg, e)
+                          }
+                          onMouseLeave={handleMessageMouseLeave}
+                        >
+                          <Modal
+                            open={DeleteModal}
+                            onClose={HandleCloseDeleteModal}
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                bgcolor: "#075E54",
+                                height: "150px",
+                                width: "250px",
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "20px",
+                                borderRadius: "15px",
+                              }}
+                            >
+                              <Typography sx={{ color: "white" }}>
+                                Are You Sure!
+                              </Typography>
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  gap: "15px",
+                                }}
+                              >
+                                <Button
+                                  variant="contained"
+                                  sx={{ bgcolor: "red", borderRadius: "8px" }}
+                                  onClick={HandleCloseDeleteModal}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  variant="contained"
+                                  sx={{ bgcolor: "green", borderRadius: "8px" }}
+                                  onClick={HandleDeleteMsg}
+                                >
+                                  Confirm
+                                </Button>
+                              </Box>
+                            </Box>
+                          </Modal>
+
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              borderRadius: 2,
+                              display: "flex",
+                              gap: "5px",
+                              flexDirection: "column",
+                              bgcolor: isMe ? "#26c964d4" : "white",
+                              color: isMe ? "white" : "text.primary",
+                              boxShadow: 1,
+                              wordBreak: "break-word",
+                            }}
+                            onDoubleClick={() => setSeletectedMsgId([])}
+                          >
+                            {hoveredMessageId === msg._id &&
+                              canEditDeleteMessage(msg) &&
+                              !msg.isDeleted && (
+                                <IconButton
+                                  size="small"
+                                  className="message-actions"
+                                  onClick={handleMessageMenuClick}
+                                  sx={{
+                                    position: "absolute",
+                                    top: 0,
+                                    right: 0,
+                                    opacity: 0,
+                                    transition: "opacity 0.2s",
+                                    bgcolor: "rgba(255, 255, 255, 0.8)",
+                                    "&:hover": {
+                                      bgcolor: "rgba(255, 255, 255, 1)",
+                                    },
+                                  }}
+                                >
+                                  <MoreVertIcon fontSize="small" />
+                                </IconButton>
+                              )}
+
                             <Box
                               sx={{
                                 display: "flex",
                                 justifyContent: "space-between",
                                 alignItems: "center",
-                                gap: "15px",
+                                gap: "20px",
                               }}
                             >
-                              <Button
-                                variant="contained"
-                                sx={{ bgcolor: "red", borderRadius: "8px" }}
-                                onClick={HandleCloseDeleteModal}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                variant="contained"
-                                sx={{ bgcolor: "green", borderRadius: "8px" }}
-                                onClick={HandleDeleteMsg}
-                              >
-                                Confirm
-                              </Button>
-                            </Box>
-                          </Box>
-                        </Modal>
-
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            borderRadius: 2,
-                            display: "flex",
-                            gap: "5px",
-                            flexDirection: "column",
-                            bgcolor: isMe ? "#26c964d4" : "white",
-                            color: isMe ? "white" : "text.primary",
-                            boxShadow: 1,
-                            wordBreak: "break-word",
-                            borderLeft:
-                              isFirstUnread && !isMe
-                                ? "3px solid #25D366"
-                                : "none",
-                          }}
-                          onDoubleClick={() => setSeletectedMsgId([])}
-                        >
-                          {hoveredMessageId === msg._id &&
-                            canEditDeleteMessage(msg) &&
-                            !msg.isDeleted && (
-                              <IconButton
-                                size="small"
-                                className="message-actions"
-                                onClick={handleMessageMenuClick}
-                                sx={{
-                                  position: "absolute",
-                                  top: 0,
-                                  right: 0,
-                                  opacity: 0,
-                                  transition: "opacity 0.2s",
-                                  bgcolor: "rgba(255, 255, 255, 0.8)",
-                                  "&:hover": {
-                                    bgcolor: "rgba(255, 255, 255, 1)",
-                                  },
-                                }}
-                              >
-                                <MoreVertIcon fontSize="small" />
-                              </IconButton>
-                            )}
-
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              gap: "20px",
-                            }}
-                          >
-                            <Modal
-                              open={editopen}
-                              onClose={handleEditClose}
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                bgcolor: "transparent",
-                              }}
-                            >
-                              <Box
+                              <Modal
+                                open={editopen}
+                                onClose={handleEditClose}
                                 sx={{
                                   display: "flex",
                                   alignItems: "center",
-                                  bgcolor: "#272626ae",
-                                  p: 2,
-                                  borderRadius: "8px",
+                                  justifyContent: "center",
+                                  bgcolor: "transparent",
                                 }}
                               >
-                                <Input
-                                  placeholder="Edit msg"
+                                <Box
                                   sx={{
-                                    width: "300px",
-                                    bgcolor: "white",
-                                    borderRadius: "10px",
-                                    p: 1,
-                                  }}
-                                  value={EditMsg}
-                                  onChange={EditMsgValue}
-                                />
-                                <IconButton>
-                                  <CheckCircleIcon
-                                    sx={{ color: "white" }}
-                                    onClick={() => HandleEdit(msg.SenderId)}
-                                  />
-                                </IconButton>
-                              </Box>
-                            </Modal>
-
-                            {!msg.isDeleted ? (
-                              <Typography variant="body1">
-                                {msg.message}
-                              </Typography>
-                            ) : (
-                              <Box
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "5px",
-                                }}
-                              >
-                                <DoNotDisturbIcon sx={{ color: "#272626ae" }} />{" "}
-                                <Typography
-                                  sx={{
-                                    color: "#272626ae",
-                                    fontSize: "14px",
-                                    fontStyle: "italic",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    bgcolor: "#272626ae",
+                                    p: 2,
+                                    borderRadius: "8px",
                                   }}
                                 >
-                                  This Messgae has been deleted
-                                </Typography>
-                              </Box>
-                            )}
+                                  <Input
+                                    placeholder="Edit msg"
+                                    sx={{
+                                      width: "300px",
+                                      bgcolor: "white",
+                                      borderRadius: "10px",
+                                      p: 1,
+                                    }}
+                                    value={EditMsg}
+                                    onChange={EditMsgValue}
+                                  />
+                                  <IconButton>
+                                    <CheckCircleIcon
+                                      sx={{ color: "white" }}
+                                      onClick={() => HandleEdit(msg.SenderId)}
+                                    />
+                                  </IconButton>
+                                </Box>
+                              </Modal>
 
-                            <Typography
-                              sx={{ fontSize: "10px", color: "#272626ae" }}
-                            >
-                              {msg.isEdited ? "Edited" : ""}
-                            </Typography>
-                            <Typography
-                              sx={{
-                                fontSize: "10px",
-                                marginBottom: 0,
-                                color: "#272626ae",
-                              }}
-                            >
-                              {new Date(msg.createdAt).toLocaleTimeString(
-                                "en-US",
-                                {
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                  hour12: true,
-                                },
+                              {!msg.isDeleted ? (
+                                <Typography variant="body1">
+                                  {msg.message}
+                                </Typography>
+                              ) : (
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "5px",
+                                  }}
+                                >
+                                  <DoNotDisturbIcon
+                                    sx={{ color: "#272626ae" }}
+                                  />{" "}
+                                  <Typography
+                                    sx={{
+                                      color: "#272626ae",
+                                      fontSize: "14px",
+                                      fontStyle: "italic",
+                                    }}
+                                  >
+                                    This Messgae has been deleted
+                                  </Typography>
+                                </Box>
                               )}
-                            </Typography>
-                            {msg._id === SeletectedMsgId &&
-                            msg.SenderId === myId ? (
-                              <MoreVertIcon />
-                            ) : (
-                              ""
-                            )}
+
+                              <Typography
+                                sx={{ fontSize: "10px", color: "#272626ae" }}
+                              >
+                                {msg.isEdited ? "Edited" : ""}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  fontSize: "10px",
+                                  marginBottom: 0,
+                                  color: "#272626ae",
+                                }}
+                              >
+                                {new Date(msg.createdAt).toLocaleTimeString(
+                                  "en-US",
+                                  {
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  },
+                                )}
+                              </Typography>
+                              {msg._id === SeletectedMsgId &&
+                              msg.SenderId === myId ? (
+                                <MoreVertIcon />
+                              ) : (
+                                ""
+                              )}
+                            </Box>
                           </Box>
                         </Box>
-                      </Box>
-                    )}
-                  </React.Fragment>
-                );
-              })}
+                      )}
+                    </React.Fragment>
+                  );
+                })}
 
-              {isTyping && (
-                <Box sx={{ alignSelf: "flex-start" }}>
-                  <Lottie
-                    options={TYping}
-                    width={70}
-                    style={{ marginLeft: -10 }}
-                  />
-                </Box>
-              )}
-              <div ref={messagesEndRef} />
-            </Box>
+                {isTyping && (
+                  <Box sx={{ alignSelf: "flex-start" }}>
+                    <Lottie
+                      options={TYping}
+                      width={70}
+                      style={{ marginLeft: -10 }}
+                    />
+                  </Box>
+                )}
+                <div ref={messagesEndRef} />
+              </Box>
+            ) : (
+              ""
+            )}
+
             {selectedName ? (
               <Box
                 sx={{
@@ -1876,7 +1904,7 @@ const ChatBoard = () => {
                   borderRadius: "0 0 10px 10px",
                 }}
               >
-                <TextField
+                <InputEmoji
                   value={text}
                   onChange={handleTyping}
                   placeholder="Type a message..."
